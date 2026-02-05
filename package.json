@@ -1,0 +1,28 @@
+{
+  "name": "extract-email",
+  "version": "1.0.0",
+  "description": "CLI tool to extract and process emails from IMAP accounts with support for multiple account configurations and custom task plugins.",
+  "type": "module",
+  "main": "extractEmail.mjs",
+  "bin": {
+    "extractEmail": "./extractEmail.mjs"
+  },
+  "scripts": {
+    "start": "node extractEmail.mjs",
+    "test": "node test/run-tests.mjs"
+  },
+  "keywords": [
+    "email",
+    "imap",
+    "cli",
+    "extract",
+    "mail",
+    "parser"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "imap-simple": "^5.1.0",
+    "mailparser": "^3.9.0"
+  }
+}
