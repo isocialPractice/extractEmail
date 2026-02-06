@@ -1,3 +1,6 @@
-accounts/
-extractEmailTasks/
+# Ignore actual config files (but not templates)
+accounts/*.mjs
+!accounts/*.template
+extractEmailTasks/*.js
+!extractEmailTasks/*.template
 configEmailExtraction.mjs

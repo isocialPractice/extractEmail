@@ -24,11 +24,29 @@ npm link
 
 ## Configuration
 
-> **⚠️ Security Note:** Configuration files contain sensitive credentials (passwords, email addresses). The `.gitignore` file prevents `accounts/`, `extractEmailTasks/`, and `configEmailExtraction.mjs` from being committed. Never use `git add -f` on these files or modify `.gitignore` to include them.
+> **⚠️ Security Note:** Configuration files contain sensitive credentials. Template files (`.template`) are tracked in Git, but actual config files are ignored. Never use `git add -f` on non-template config files.
+
+### Setup
+
+After cloning, copy the template files to create your configuration:
+
+```bash
+# Copy the default config template
+cp configEmailExtraction.mjs.template configEmailExtraction.mjs
+
+# Copy account template (for multi-account setup)
+cp accounts/example.mjs.template accounts/example.mjs
+
+# Copy task templates
+cp extractEmailTasks/downloadAttachments.js.template extractEmailTasks/downloadAttachments.js
+cp extractEmailTasks/stop.js.template extractEmailTasks/stop.js
+```
+
+Then edit these files with your credentials. Changes to these files won't be tracked by Git.
 
 ### Default Configuration
 
-Create a `configEmailExtraction.mjs` file in the project root:
+Edit `configEmailExtraction.mjs` with your credentials:
 
 ```javascript
 export const configEmail = {
