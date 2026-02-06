@@ -24,6 +24,8 @@ npm link
 
 ## Configuration
 
+> **⚠️ Security Note:** Configuration files contain sensitive credentials (passwords, email addresses). The `.gitignore` file prevents `accounts/`, `extractEmailTasks/`, and `configEmailExtraction.mjs` from being committed. Never use `git add -f` on these files or modify `.gitignore` to include them.
+
 ### Default Configuration
 
 Create a `configEmailExtraction.mjs` file in the project root:
