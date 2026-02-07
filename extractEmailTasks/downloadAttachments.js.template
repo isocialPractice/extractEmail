@@ -73,6 +73,12 @@ function findAttachments(parts, attachments = []) {
   const partList = Array.isArray(parts) ? parts : [parts];
 
   for (const part of partList) {
+    // Recurse into nested arrays (multipart sub-structures in IMAP struct)
+    if (Array.isArray(part)) {
+      findAttachments(part, attachments);
+      continue;
+    }
+
     // Check if this part is an attachment or inline with filename
     const disposition = part.disposition;
     const dispositionType = disposition && disposition.type
@@ -123,8 +129,22 @@ function getRawMessagePart(msg) {
   return msg.parts.find(part => part.which === '' || part.which === 'RFC822' || part.which === 'BODY[]') || null;
 }
 
-async function getParsedAttachments(msg) {
-  const rawPart = getRawMessagePart(msg);
+async function getParsedAttachments(msg, connection = null) {
+  let rawPart = getRawMessagePart(msg);
+
+  // If no raw part available and we have a connection, re-fetch the full message
+  if (!rawPart && connection && msg.attributes && msg.attributes.uid) {
+    try {
+      const uid = msg.attributes.uid;
+      const refetch = await connection.search([['UID', uid]], { bodies: [''], struct: false });
+      if (refetch && refetch.length > 0) {
+        rawPart = getRawMessagePart(refetch[0]);
+      }
+    } catch (err) {
+      // Fall through — struct-based detection is the primary method
+    }
+  }
+
   if (!rawPart) return [];
 
   try {
@@ -225,7 +245,7 @@ export default async function downloadAttachmentsTask(
   const struct = msg.attributes.struct;
   const structAttachments = findAttachments(struct);
   const parsedAttachments = structAttachments.length === 0
-    ? await getParsedAttachments(msg)
+    ? await getParsedAttachments(msg, connection)
     : [];
 
   const attachmentEntries = parsedAttachments.length > 0

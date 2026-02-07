@@ -68,8 +68,8 @@ async function loadConfig(configName) {
 }
 
 /**
- * Parse special flags (--config, --test, --task, --output-folder) from arguments.
- * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, filteredArgs: string[] }}
+ * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --attachment-download) from arguments.
+ * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, attachmentDownload: boolean, fromFilter: string|null, subjectFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
  */
 function parseSpecialArgs() {
   const args = process.argv.slice(2);
@@ -77,6 +77,12 @@ function parseSpecialArgs() {
   let testMode = false;
   let taskName = null;
   let outputPath = null;
+  let emailNumber = null;
+  let fullBody = false;
+  let attachmentDownload = false;
+  let fromFilter = null;
+  let subjectFilter = null;
+  let attachmentFilter = false;
   const filteredArgs = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -97,6 +103,22 @@ function parseSpecialArgs() {
     } else if (arg === '--output-folder' || arg === '-o') {
       if (i + 1 >= args.length) throw new Error('Missing value for -o/--output-folder');
       outputPath = args[++i];
+    } else if (arg.startsWith('--number=')) {
+      emailNumber = parseInt(arg.substring('--number='.length), 10);
+    } else if (arg === '--number' || arg === '-n') {
+      if (i + 1 >= args.length) throw new Error('Missing value for -n/--number');
+      emailNumber = parseInt(args[++i], 10);
+    } else if (arg === '--full-body' || arg === '-f') {
+      fullBody = true;
+    } else if (arg === '--attachment-download' || arg === '-a') {
+      attachmentDownload = true;
+    } else if (arg.startsWith('from=')) {
+      fromFilter = arg.substring('from='.length).replace(/^["']|["']$/g, '');
+    } else if (arg.startsWith('subject=')) {
+      subjectFilter = arg.substring('subject='.length).replace(/^["']|["']$/g, '');
+    } else if (arg.startsWith('attachment=')) {
+      const val = arg.substring('attachment='.length).toLowerCase();
+      attachmentFilter = val === 'true';
     } else if (arg === '--test') {
       testMode = true;
     } else {
@@ -104,7 +126,7 @@ function parseSpecialArgs() {
     }
   }
 
-  return { configName, testMode, taskName, outputPath, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs };
 }
 
 /**
@@ -157,6 +179,24 @@ const help = `
  Testing:
   --test                Use mock email data (no real IMAP connection required)
 
+ Email Selection:
+  -n, --number <num>    Get a specific email by number (e.g., Email #5)
+                        Always outputs the full body message
+                        Example: extractEmail -n 5
+
+  -f, --full-body       Output the full body message (not truncated)
+                        Reduces default count to improve performance
+                        Example: extractEmail -f subject 10
+
+  -a, --attachment-download
+                        Download attachment(s) from email(s)
+                        Requires one of: -n <num>, from="email@site.com",
+                        subject="pattern", or attachment=true (first with attachment)
+                        Example: extractEmail -a -n 5
+                        Example: extractEmail -a from="sender@example.com"
+                        Example: extractEmail -a subject="Invoice" 
+                        Example: extractEmail -a attachment=true
+
  Options:
   -h, --help            Show this help message
   from                  Extract sender addresses
@@ -175,11 +215,15 @@ const help = `
   extractEmail --task=myTask 50          Run myTask on last 50 emails
   extractEmail --config=work --task=myTask  Run task with specific account
   extractEmail -o ./output body 10        Write output to a file in ./output
+  extractEmail -n 10                      Get email #10 with full body
+  extractEmail -f all 20                  Get last 20 emails with full body
+  extractEmail -a -n 5                    Download attachments from email #5
+  extractEmail -a from="boss@work.com"    Download attachments from boss's emails
 
  Task Sets:`;
 
-// Parse special arguments (--config, --test, --task) and get remaining args.
-const { configName, testMode, taskName, outputPath, filteredArgs } = parseSpecialArgs();
+// Parse special arguments (--config, --test, --task, --number, --full-body, --attachment-download) and get remaining args.
+const { configName, testMode, taskName, outputPath, emailNumber, fullBody, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -191,16 +235,22 @@ let outputOptions = null;
 var extract, count;
 
 // Set parameter variables from filtered args (excludes --config, --task).
-// If --task is provided, use it as the task name and first arg becomes count.
+// Find any all-digit value to use as count, regardless of position.
+const numericArgs = filteredArgs.filter(arg => /^\d+$/.test(arg));
+const nonNumericArgs = filteredArgs.filter(arg => !/^\d+$/.test(arg));
+
+// If --task is provided, use it as the task name.
 if (taskName) {
   extract = taskName;
-  count = filteredArgs.length >= 1 ? filteredArgs[0] : 100;
-} else if (filteredArgs.length < 1) {
+  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : (fullBody ? 20 : 100);
+} else if (nonNumericArgs.length === 0) {
+  // No options specified, just count (or nothing)
   extract = "all";
-  count = 100;
+  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : (fullBody ? 20 : 100);
 } else {
-  extract = filteredArgs[0];
-  count = filteredArgs.length >= 2 ? filteredArgs[1] : 100;
+  // Use first non-numeric arg as extract option
+  extract = nonNumericArgs[0];
+  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : (fullBody ? 20 : 100);
 }
 
 /************************************* SUPPORT FUNCTIONS *************************************/
@@ -253,6 +303,16 @@ async function callExtractEmailTask(opt, headersPart, subject, body, connection 
 var val;
 let currentAttachmentSummary = false;
 const DEFAULT_RESPONSE_FILENAME = 'extractEmal.response.txt';
+const MAX_BODY_PREVIEW_LENGTH = 200;
+
+// Truncate body text to preview length (unless fullBody mode is enabled)
+const truncateBody = (bodyText) => {
+  if (fullBody || emailNumber !== null) return bodyText; // Don't truncate in full-body or specific email mode
+  if (!bodyText) return bodyText;
+  const text = String(bodyText);
+  if (text.length <= MAX_BODY_PREVIEW_LENGTH) return text;
+  return text.substring(0, MAX_BODY_PREVIEW_LENGTH) + '...';
+};
 const outputWriter = {
   enabled: false,
   filePath: null,
@@ -319,17 +379,19 @@ const writeOutputLine = (line) => {
 
 const setVal = (opt, headersPart, subject, body) => {
   if (opt == "subject") val = subject;
-  else if (opt == "body") val = body;
+  else if (opt == "body") val = truncateBody(body);
   else if (opt == "attachment") val = currentAttachmentSummary;
   else val = headersPart[opt];
 };
 
 // Constant output to terminal.
 var emailCount = 0;
+var totalEmailsToDisplay = 0;
 const outputToTerminal = (opt, val, h) => {
   if (h == 0) {
+    const reversedNumber = totalEmailsToDisplay - emailCount;
     writeOutputLine('');
-    writeOutputLine(`=== Email #${emailCount + 1} ===`);
+    writeOutputLine(`=== Email #${reversedNumber} ===`);
     emailCount++;
   }
   writeOutputLine(opt[0].toUpperCase() + opt.substr(1,) + ": " + val);
@@ -337,6 +399,11 @@ const outputToTerminal = (opt, val, h) => {
 
 const findTextPart = (parts) => {
   for (const part of parts) {
+    if (Array.isArray(part)) {
+      const nested = findTextPart(part);
+      if (nested) return nested;
+      continue;
+    }
     if (part.type === 'text' && part.subtype === 'plain') {
       return part;
     }
@@ -348,11 +415,34 @@ const findTextPart = (parts) => {
   return null;
 };
 
+const findHtmlPart = (parts) => {
+  for (const part of parts) {
+    if (Array.isArray(part)) {
+      const nested = findHtmlPart(part);
+      if (nested) return nested;
+      continue;
+    }
+    if (part.type === 'text' && part.subtype === 'html') {
+      return part;
+    }
+    if (part.parts) {
+      const nested = findHtmlPart(part.parts);
+      if (nested) return nested;
+    }
+  }
+  return null;
+};
+
 const findAttachmentsInStruct = (parts, attachments = []) => {
   if (!parts) return attachments;
 
   const partList = Array.isArray(parts) ? parts : [parts];
   for (const part of partList) {
+    if (Array.isArray(part)) {
+      findAttachmentsInStruct(part, attachments);
+      continue;
+    }
+
     const disposition = part.disposition;
     const dispositionType = disposition && disposition.type
       ? disposition.type.toLowerCase()
@@ -410,12 +500,27 @@ const getRawMessagePart = (msg) => {
   return msg.parts.find(part => part.which === '' || part.which === 'RFC822' || part.which === 'BODY[]') || null;
 };
 
-const getAttachmentSummaryFromMessage = async (msg) => {
+const getAttachmentSummaryFromMessage = async (msg, connection = null) => {
   const struct = msg && msg.attributes ? msg.attributes.struct : null;
   const structSummary = getAttachmentSummary(struct);
   if (structSummary) return structSummary;
 
-  const rawPart = getRawMessagePart(msg);
+  // Try pre-fetched raw message part first
+  let rawPart = getRawMessagePart(msg);
+
+  // If no raw part available and we have a connection, re-fetch the full message
+  if (!rawPart && connection && msg.attributes && msg.attributes.uid) {
+    try {
+      const uid = msg.attributes.uid;
+      const refetch = await connection.search([['UID', uid]], { bodies: [''], struct: false });
+      if (refetch && refetch.length > 0) {
+        rawPart = getRawMessagePart(refetch[0]);
+      }
+    } catch (err) {
+      // Silently fall through — struct-based detection is the primary method
+    }
+  }
+
   if (!rawPart) return false;
 
   try {
@@ -517,6 +622,61 @@ const handleTask = async (opt, headersPart, subject, body, connection = null, ms
   }
 };
 
+// Download attachments from a message
+async function downloadAttachments(connection, msg, headersPart, outputDir) {
+  const struct = msg.attributes.struct;
+  const attachments = findAttachmentsInStruct(struct);
+  
+  if (!attachments || attachments.length === 0) {
+    console.log('No attachments found in this email.');
+    return;
+  }
+
+  // Create output directory if it doesn't exist
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  console.log(`\nDownloading ${attachments.length} attachment(s)...`);
+
+  for (const attachment of attachments) {
+    try {
+      const filename = getAttachmentFilename(attachment);
+      const partData = await connection.getPartData(msg, attachment);
+      const filePath = path.join(outputDir, filename);
+      
+      // Write the attachment to disk
+      fs.writeFileSync(filePath, partData);
+      console.log(`✓ Downloaded: ${filename}`);
+    } catch (err) {
+      console.error(`✗ Error downloading attachment:`, err.message);
+    }
+  }
+}
+
+// Check if email matches filter criteria
+function matchesFilters(headersPart, subject, hasAttachment) {
+  if (fromFilter) {
+    const from = Array.isArray(headersPart.from) ? headersPart.from.join(' ') : (headersPart.from || '');
+    if (!from.toLowerCase().includes(fromFilter.toLowerCase())) {
+      return false;
+    }
+  }
+
+  if (subjectFilter) {
+    const subjectStr = String(subject || '');
+    if (!subjectStr.toLowerCase().includes(subjectFilter.toLowerCase())) {
+      return false;
+    }
+  }
+
+  if (attachmentFilter && !hasAttachment) {
+    return false;
+  }
+
+  return true;
+}
+
 
 /*********************************************************************************************
                                          MAIN FUNCTION
@@ -550,14 +710,139 @@ async function extractEmail() {
 
       const searchCriteria = ['ALL'];
       const fetchOptions = {
-        bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT', ''],
+        bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)'],
         struct: true
       };
 
       const messages = await connection.search(searchCriteria, fetchOptions);
 
-      // Look at the last 100 messages
+      // Handle specific email number request
+      if (emailNumber !== null) {
+        if (emailNumber < 1 || emailNumber > messages.length) {
+          console.error(`Error: Email #${emailNumber} does not exist. Total emails: ${messages.length}`);
+          await connection.end();
+          return;
+        }
+        // Get the specific email (1-indexed from newest, so #1 = most recent)
+        const specificMsg = messages[messages.length - emailNumber];
+        const lastMessages = [specificMsg];
+        
+        for (const [i, msg] of lastMessages.entries()) {
+          const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
+          let subject = headersPart.subject || '';
+          if (Array.isArray(subject)) subject = subject.join(' ');
+
+          writeOutputLine('');
+          writeOutputLine(`=== Email #${emailNumber} ===`);
+          
+          const struct = msg.attributes.struct;
+          let body = '';
+          
+          // Try to find and fetch text/plain part first
+          const textPart = findTextPart(struct);
+          if (textPart) {
+            try {
+              const partData = await connection.getPartData(msg, textPart);
+              body = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+            } catch (err) {
+              console.error('Error fetching text part:', err);
+            }
+          }
+          
+          // If no text/plain, try HTML part
+          if (!body || !body.trim()) {
+            const htmlPart = findHtmlPart(struct);
+            if (htmlPart) {
+              try {
+                const partData = await connection.getPartData(msg, htmlPart);
+                const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+                if (htmlContent && htmlContent.trim()) {
+                  const parsed = await simpleParser(htmlContent);
+                  body = parsed.text || parsed.html || '';
+                }
+              } catch (err) {
+                console.error('Error fetching HTML part:', err);
+              }
+            }
+          }
+          
+          // Last resort: re-fetch message with TEXT body
+          if (!body || !body.trim()) {
+            try {
+              const uid = msg.attributes.uid;
+              const fullFetchOptions = { bodies: ['TEXT'], struct: false };
+              const refetch = await connection.search([['UID', uid]], fullFetchOptions);
+              if (refetch && refetch.length > 0) {
+                const textPart = refetch[0].parts.find(p => p.which === 'TEXT');
+                if (textPart) {
+                  const rawBody = normalizePartBody(textPart.body);
+                  const parsed = await simpleParser(rawBody);
+                  body = parsed.text || parsed.html || '';
+                }
+              }
+            } catch (err) {
+              console.error('Error re-fetching message body:', err);
+            }
+          }
+
+          currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
+
+          // Output all fields for specific email number
+          writeOutputLine('From: ' + (headersPart.from || ''));
+          writeOutputLine('To: ' + (headersPart.to || ''));
+          writeOutputLine('Date: ' + (headersPart.date || ''));
+          writeOutputLine('Subject: ' + subject);
+          writeOutputLine('Attachment: ' + (currentAttachmentSummary || 'false'));
+          writeOutputLine('Body: ' + body);
+
+          // Handle attachment download if requested
+          if (attachmentDownload) {
+            const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
+            await downloadAttachments(connection, msg, headersPart, downloadDir);
+          }
+        }
+        await connection.end();
+        return;
+      }
+
+      // Handle attachment download with filters
+      if (attachmentDownload && !emailNumber) {
+        let foundMatch = false;
+        for (const [i, msg] of messages.entries()) {
+          const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
+          let subject = headersPart.subject || '';
+          if (Array.isArray(subject)) subject = subject.join(' ');
+          
+          const hasAttachment = await getAttachmentSummaryFromMessage(msg, connection);
+          
+          if (matchesFilters(headersPart, subject, hasAttachment)) {
+            foundMatch = true;
+            console.log(`\nFound matching email #${i + 1}:`);
+            console.log('From:', headersPart.from || '');
+            console.log('Subject:', subject);
+            
+            const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
+            await downloadAttachments(connection, msg, headersPart, downloadDir);
+            
+            // If attachment=true filter, only download from first match
+            if (attachmentFilter) break;
+          }
+        }
+        
+        if (!foundMatch) {
+          console.log('No emails found matching the specified filters.');
+        }
+        
+        await connection.end();
+        return;
+      }
+
+      // Look at the last N messages
       const lastMessages = messages.slice(-count);
+      
+      // Set total count for reversed numbering (newest = #1)
+      totalEmailsToDisplay = lastMessages.length;
+      emailCount = 0;
 
       for (const [i, msg] of lastMessages.entries()) {
         const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
@@ -568,25 +853,56 @@ async function extractEmail() {
         handleTaskSets(extract);
 
         const struct = msg.attributes.struct;
-        const textPart = findTextPart(struct);
         let body = '';
+        
+        // Try to find and fetch text/plain part first
+        const textPart = findTextPart(struct);
         if (textPart) {
-          const partData = await connection.getPartData(msg, textPart);
-          // Convert Buffer to string if needed
-          if (Buffer.isBuffer(partData)) {
-            body = partData.toString('utf8');
-          } else if (typeof partData === 'string') {
-            body = partData;
-          } else {
-            body = String(partData || '');
+          try {
+            const partData = await connection.getPartData(msg, textPart);
+            body = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+          } catch (err) {
+            console.error('Error fetching text part:', err);
+          }
+        }
+        
+        // If no text/plain, try HTML part
+        if (!body || !body.trim()) {
+          const htmlPart = findHtmlPart(struct);
+          if (htmlPart) {
+            try {
+              const partData = await connection.getPartData(msg, htmlPart);
+              const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+              if (htmlContent && htmlContent.trim()) {
+                const parsed = await simpleParser(htmlContent);
+                body = parsed.text || parsed.html || '';
+              }
+            } catch (err) {
+              console.error('Error fetching HTML part:', err);
+            }
+          }
+        }
+        
+        // Last resort: re-fetch message with TEXT body
+        if (!body || !body.trim()) {
+          try {
+            const uid = msg.attributes.uid;
+            const fullFetchOptions = { bodies: ['TEXT'], struct: false };
+            const refetch = await connection.search([['UID', uid]], fullFetchOptions);
+            if (refetch && refetch.length > 0) {
+              const textPart = refetch[0].parts.find(p => p.which === 'TEXT');
+              if (textPart) {
+                const rawBody = normalizePartBody(textPart.body);
+                const parsed = await simpleParser(rawBody);
+                body = parsed.text || parsed.html || '';
+              }
+            }
+          } catch (err) {
+            console.error('Error re-fetching message body:', err);
           }
         }
 
-        if (!body || !body.trim()) {
-          body = await getPlainTextBody(msg);
-        }
-
-        currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg);
+        currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
 
         // If option, else handle task.
         if (optionCall == 1 && !taskName) {

@@ -5,9 +5,12 @@ A Node.js CLI tool to extract and process emails from IMAP accounts. Supports mu
 ## Features
 
 - Extract email fields (from, to, date, subject, body, attachment) from IMAP accounts
+- Get specific emails by number with full body content
+- Download attachments directly with powerful filtering options
 - Support for multiple email account configurations
 - Extensible task plugin system for custom email processing
 - Built-in task for downloading attachments with filter criteria
+- Full-body mode for detailed email content
 - Test mode with mock data (no real IMAP credentials required)
 
 ## Installation
@@ -94,7 +97,7 @@ Account filenames must not contain spaces or special characters (`/ \ : * ? " < 
 ## Usage
 
 ```bash
-extractEmail [--config=<account>] [--task=<task>] [-o <path>] [option|task] [count]
+extractEmail [--config=<account>] [--task=<task>] [-o <path>] [-n <num>] [-f] [-a] [option|task] [count]
 ```
 
 ### Account Selection
@@ -113,7 +116,25 @@ If `--config` is omitted, uses `./configEmailExtraction.mjs` in the current dire
 
 If `--task` is provided, it looks for the task in the `tasksFolder` configured in `config.json` (default: `./extractEmailTasks`). This allows you to organize tasks in a custom folder.
 
-### Options
+### Email Selection Options
+
+| Option | Description |
+|--------|-------------|
+| `-n, --number <num>` | Get a specific email by number (e.g., Email #5). Email #1 is the newest. Always outputs the full body message. |
+| `-f, --full-body` | Output the full body message (not truncated). Default count reduces to 20 for better performance. |
+| `-a, --attachment-download` | Download attachment(s) from email(s). Requires one of: `-n <num>`, `from="email@site.com"`, `subject="pattern"`, or `attachment=true`. |
+
+### Filter Arguments
+
+Used with `-a, --attachment-download` to filter emails:
+
+| Filter | Description |
+|--------|-------------|
+| `from="email@domain.com"` | Filter by sender email address (partial match, case-insensitive) |
+| `subject="pattern"` | Filter by subject text (partial match, case-insensitive) |
+| `attachment=true` | Find first email with attachment |
+
+### Extraction Options
 
 | Option | Description |
 |--------|-------------|
@@ -122,7 +143,7 @@ If `--task` is provided, it looks for the task in the `tasksFolder` configured i
 | `to` | Extract recipient addresses |
 | `date` | Extract email dates |
 | `subject` | Extract email subjects |
-| `body` | Extract email body text |
+| `body` | Extract email body text (truncated to 200 chars unless `-f` is used) |
 | `attachment` | Extract attachment name(s) or false |
 | `all` | Extract all fields (default) |
 | `-o, --output-folder <path>` | Write output to a folder or file instead of stdout |
@@ -136,7 +157,24 @@ When `-o, --output-folder` is provided:
 
 For attachment tasks, downloads default to the current working directory unless `-o` is provided.
 
+### Email Numbering
+
+Emails are numbered from newest to oldest:
+- **Email #1** = Most recent email
+- **Email #2** = Second most recent
+- And so on...
+
+This makes it easy to reference recent emails by number.
+
+### Body Text Display
+
+By default, email body text is truncated to 200 characters for performance. To view full body content:
+- Use `-f, --full-body` flag for multiple emails (default count reduces to 20)
+- Use `-n, --number` to get a specific email (always shows full body)
+
 ### Examples
+
+#### Basic Extraction
 
 ```bash
 # Extract all fields from last 100 emails (default account)
@@ -150,13 +188,63 @@ extractEmail attachment 10
 
 # Extract sender addresses from last 25 emails using work account
 extractEmail --config=work from 25
+```
 
+#### Email Selection by Number
+
+```bash
+# Get the most recent email with full body (#1 = newest)
+extractEmail -n 1
+
+# Get email #10 with full body
+extractEmail -n 10
+
+# Get email #5 and download its attachments
+extractEmail -a -n 5
+```
+
+#### Full Body Mode
+
+```bash
+# Get last 20 emails with full body (not truncated)
+extractEmail -f all 20
+
+# Get last 10 subject lines with full body text
+extractEmail -f subject 10
+```
+
+#### Download Attachments
+
+```bash
+# Download attachments from email #5
+extractEmail -a -n 5
+
+# Download attachments from emails sent by a specific sender
+extractEmail -a from="boss@work.com"
+
+# Download attachments from emails with "Invoice" in subject
+extractEmail -a subject="Invoice"
+
+# Download attachments from the first email that has any attachment
+extractEmail -a attachment=true
+
+# Download attachments to a specific folder
+extractEmail -a -n 5 -o ./downloads
+```
+
+#### Task Execution
+
+```bash
 # Run a task using --task option
 extractEmail --task=myTask 50
 
 # Run a task with a specific account
 extractEmail --config=work --task=myTask
+```
 
+#### Output Control
+
+```bash
 # Write output to a folder
 extractEmail -o ./output subject 25
 
@@ -167,6 +255,46 @@ extractEmail -o ./output/results.txt body 10
 extractEmail --help
 ```
 
+## Direct Attachment Download
+
+You can download attachments directly using the `-a, --attachment-download` flag combined with filters, without needing to use the `downloadAttachments` task.
+
+### Usage
+
+```bash
+extractEmail -a [filter] [-o <output-folder>]
+```
+
+### Filter Options
+
+At least one filter is required when using `-a`:
+
+- **Specific email number:** `-n <num>` - Download from a specific email
+- **Sender filter:** `from="email@domain.com"` - Download from emails sent by this sender
+- **Subject filter:** `subject="pattern"` - Download from emails with this subject pattern
+- **Has attachment:** `attachment=true` - Download from the first email that has any attachment
+
+### Examples
+
+```bash
+# Download attachments from email #5
+extractEmail -a -n 5
+
+# Download from all emails sent by a specific sender
+extractEmail -a from="reports@company.com"
+
+# Download from emails with "invoice" in the subject
+extractEmail -a subject="invoice"
+
+# Download from the first email with any attachment
+extractEmail -a attachment=true
+
+# Specify output folder
+extractEmail -a -n 5 -o ./my-downloads
+```
+
+By default, attachments are saved to an `attachments/` folder in the current directory. Use `-o` to specify a different location.
+
 ## Task System
 
 Tasks are custom plugins that process emails. They are located in the `extractEmailTasks/` folder.
@@ -176,7 +304,7 @@ Tasks are custom plugins that process emails. They are located in the `extractEm
 | Task | Description |
 |------|-------------|
 | `stop` | Find emails with subject "stop" and output the sender |
-| `downloadAttachments` | Download attachments from emails matching filter criteria |
+| `downloadAttachments` | Download attachments from emails matching filter criteria (legacy method) |
 
 ### Running Tasks
 

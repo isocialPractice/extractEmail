@@ -2,6 +2,7 @@
 // test/run-tests.mjs
 // Test runner for extractEmail - validates functionality without real email credentials.
 
+import fs from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,6 +10,24 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const mainScript = path.resolve(__dirname, '..', 'extractEmail.mjs');
+const tasksDir = path.resolve(__dirname, '..', 'extractEmailTasks');
+
+/**
+ * Create temp stop.js from template so stop task tests can run.
+ */
+function setupStopTask() {
+  const templatePath = path.join(tasksDir, 'stop.js.template');
+  const tempPath = path.join(tasksDir, 'stop.js');
+  fs.copyFileSync(templatePath, tempPath);
+}
+
+/**
+ * Remove temp stop.js after tests.
+ */
+function teardownStopTask() {
+  const tempPath = path.join(tasksDir, 'stop.js');
+  try { fs.unlinkSync(tempPath); } catch (_) { /* already removed */ }
+}
 
 // Test results tracking
 let passed = 0;
@@ -173,6 +192,8 @@ async function main() {
   console.log('  extractEmail Test Suite');
   console.log('========================================');
 
+  setupStopTask();
+
   try {
     await testHelpOutput();
     await testBasicExtraction();
@@ -182,6 +203,8 @@ async function main() {
   } catch (err) {
     console.error('\nTest runner error:', err);
     process.exit(1);
+  } finally {
+    teardownStopTask();
   }
 
   console.log('\n========================================');
