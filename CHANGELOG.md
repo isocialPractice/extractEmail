@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0]
 
+Releasing version `2.0.0` as new options and improved handling of output merit a major version update.
+
 ### Added
 
 - `--json:[argument]` flag to convert the output to JSON format
