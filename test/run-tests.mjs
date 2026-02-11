@@ -183,6 +183,108 @@ async function testTaskOption() {
   assertContains(helpResult.stdout, 'tasksFolder', 'Help mentions tasksFolder');
 }
 
+async function testJsonModes() {
+  console.log('\n[Test Suite] JSON Output Modes\n');
+
+  // Test: Basic JSON mode
+  const jsonResult = await runCommand(['--json', 'all', '2']);
+  assertContains(jsonResult.stdout, '"Email #', 'JSON mode outputs email keys');
+  assertContains(jsonResult.stdout, '"From":', 'JSON mode outputs From field');
+  assertContains(jsonResult.stdout, '"Subject":', 'JSON mode outputs Subject field');
+  assertContains(jsonResult.stdout, '"Body":', 'JSON mode outputs Body field');
+
+  // Verify JSON is valid
+  try {
+    const jsonData = JSON.parse(jsonResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim());
+    if (jsonData['Email #2'] && jsonData['Email #1']) {
+      console.log('  ✓ JSON mode produces valid JSON');
+      passed++;
+    } else {
+      console.log('  ✗ JSON mode produces valid JSON');
+      failed++;
+    }
+  } catch (err) {
+    console.log('  ✗ JSON mode produces valid JSON');
+    console.log(`    Parse error: ${err.message}`);
+    failed++;
+  }
+
+  // Test: From and Date are strings, not arrays
+  const jsonSingleResult = await runCommand(['--json', '-n', '1']);
+  const jsonOutput = jsonSingleResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  try {
+    const jsonData = JSON.parse(jsonOutput);
+    const firstEmail = Object.values(jsonData)[0];
+    if (typeof firstEmail.From === 'string') {
+      console.log('  ✓ From field is a string (not array)');
+      passed++;
+    } else {
+      console.log('  ✗ From field is a string (not array)');
+      failed++;
+    }
+    if (typeof firstEmail.Date === 'string') {
+      console.log('  ✓ Date field is a string (not array)');
+      passed++;
+    } else {
+      console.log('  ✗ Date field is a string (not array)');
+      failed++;
+    }
+  } catch (err) {
+    console.log('  ✗ Failed to validate From/Date types');
+    console.log(`    Parse error: ${err.message}`);
+    failed += 2;
+  }
+
+  // Test: JSON:html mode
+  const jsonHtmlResult = await runCommand(['--json:html', '-n', '1']);
+  assertContains(jsonHtmlResult.stdout, '"Email #', 'JSON:html mode outputs email keys');
+  assertContains(jsonHtmlResult.stdout, '"Body":', 'JSON:html mode outputs Body field');
+
+  // Test: JSON:table mode
+  const jsonTableResult = await runCommand(['--json:table', '-n', '1']);
+  assertContains(jsonTableResult.stdout, '"Email #', 'JSON:table mode outputs email keys');
+  assertContains(jsonTableResult.stdout, '"Body":', 'JSON:table mode outputs Body field');
+
+  // Verify JSON:table extracts table data correctly
+  const jsonTableOutput = jsonTableResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  try {
+    const jsonData = JSON.parse(jsonTableOutput);
+    const firstEmail = Object.values(jsonData)[0];
+    if (firstEmail.Body && typeof firstEmail.Body === 'object') {
+      // Check if Body has table column properties
+      if (firstEmail.Body.Field && firstEmail.Body.Response) {
+        console.log('  ✓ JSON:table extracts table columns as properties');
+        passed++;
+
+        // Verify column values are arrays
+        if (Array.isArray(firstEmail.Body.Field) && Array.isArray(firstEmail.Body.Response)) {
+          console.log('  ✓ JSON:table column values are arrays');
+          passed++;
+        } else {
+          console.log('  ✗ JSON:table column values are arrays');
+          failed++;
+        }
+      } else {
+        console.log('  ✗ JSON:table extracts table columns as properties');
+        failed++;
+      }
+    } else {
+      console.log('  ✗ JSON:table Body is an object');
+      failed++;
+    }
+  } catch (err) {
+    console.log('  ✗ Failed to validate JSON:table structure');
+    console.log(`    Parse error: ${err.message}`);
+    failed += 2;
+  }
+
+  // Test: Help documents all JSON modes
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--json', 'Help documents --json option');
+  assertContains(helpResult.stdout, '--json:html', 'Help documents --json:html option');
+  assertContains(helpResult.stdout, '--json:table', 'Help documents --json:table option');
+}
+
 // ============================================================================
 // MAIN
 // ============================================================================
@@ -200,6 +302,7 @@ async function main() {
     await testStopTask();
     await testUnknownOption();
     await testTaskOption();
+    await testJsonModes();
   } catch (err) {
     console.error('\nTest runner error:', err);
     process.exit(1);

@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
 import { simpleParser } from 'mailparser';
+import { convert as htmlToText } from 'html-to-text';
+import { parseDocument } from 'htmlparser2';
 // imap-simple is loaded dynamically to support --test mode without dependencies
 
 // Get directory of this script for resolving relative paths.
@@ -68,8 +70,8 @@ async function loadConfig(configName) {
 }
 
 /**
- * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --attachment-download) from arguments.
- * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, attachmentDownload: boolean, fromFilter: string|null, subjectFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
+ * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --html, --json, --attachment-download) from arguments.
+ * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, fromFilter: string|null, subjectFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
  */
 function parseSpecialArgs() {
   const args = process.argv.slice(2);
@@ -79,6 +81,8 @@ function parseSpecialArgs() {
   let outputPath = null;
   let emailNumber = null;
   let fullBody = false;
+  let htmlMode = false;
+  let jsonMode = null;
   let attachmentDownload = false;
   let fromFilter = null;
   let subjectFilter = null;
@@ -110,6 +114,19 @@ function parseSpecialArgs() {
       emailNumber = parseInt(args[++i], 10);
     } else if (arg === '--full-body' || arg === '-f') {
       fullBody = true;
+    } else if (arg === '--html') {
+      htmlMode = true;
+    } else if (arg.startsWith('--json')) {
+      if (arg === '--json') {
+        jsonMode = 'default';
+      } else if (arg.startsWith('--json:')) {
+        const jsonArg = arg.substring('--json:'.length).toLowerCase();
+        if (jsonArg === 'html' || jsonArg === 'table') {
+          jsonMode = jsonArg;
+        } else {
+          throw new Error(`Invalid --json argument: ${jsonArg}. Use --json, --json:html, or --json:table`);
+        }
+      }
     } else if (arg === '--attachment-download' || arg === '-a') {
       attachmentDownload = true;
     } else if (arg.startsWith('from=')) {
@@ -126,7 +143,7 @@ function parseSpecialArgs() {
     }
   }
 
-  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs };
 }
 
 /**
@@ -184,9 +201,36 @@ const help = `
                         Always outputs the full body message
                         Example: extractEmail -n 5
 
-  -f, --full-body       Output the full body message (not truncated)
+  -f, --full-body       Output the full body message (sanitized to text, not truncated)
+                        HTML elements are removed and formatted for readability
+                        Tables are converted to pipe-delimited format (| cell | cell |)
                         Reduces default count to improve performance
                         Example: extractEmail -f subject 10
+
+  --html                Output the full body with raw HTML elements preserved
+                        Use when you need original HTML content (e.g., for parsing)
+                        Reduces default count to improve performance
+                        Example: extractEmail --html subject 10
+
+  --json                Output results in JSON format instead of text
+                        Reduces default count to 20 for performance
+                        Useful for programmatic parsing and data integration
+                        Example: extractEmail --json all 10
+
+  --json:html           Output JSON with hierarchical structure from HTML DOM
+                        Reduces default count to 25 for performance
+                        Preserves element nesting (div, span, p, h1-h6, etc.)
+                        Tables extracted as arrays of row arrays
+                        Single-child wrappers collapsed to deepest tag
+                        Inline text appears in 'tag-data' properties
+                        Example: extractEmail --json:html -n 1
+
+  --json:table          Output JSON with columnar format from HTML tables
+                        Reduces default count to 25 for performance
+                        Extracts ONLY table data, removes all other content
+                        Uses table headers (th) or first row (td) as property names
+                        Column values stored as arrays
+                        Example: extractEmail --json:table -n 1
 
   -a, --attachment-download
                         Download attachment(s) from email(s)
@@ -203,9 +247,9 @@ const help = `
   to                    Extract recipient addresses
   date                  Extract email dates
   subject               Extract email subjects
-  body                  Extract email body text
+  body                  Extract email body text (sanitized, truncated to 200 chars)
   attachment            Extract attachment name(s) or false
-  all                   Extract all fields (default)
+  all                   Extract all fields (default, body is sanitized and truncated)
 
  Examples:
   extractEmail                           Extract all fields from last 100 emails
@@ -216,14 +260,18 @@ const help = `
   extractEmail --config=work --task=myTask  Run task with specific account
   extractEmail -o ./output body 10        Write output to a file in ./output
   extractEmail -n 10                      Get email #10 with full body
-  extractEmail -f all 20                  Get last 20 emails with full body
+  extractEmail -f all 20                  Get last 20 emails with full body (sanitized text)
+  extractEmail --html all 20              Get last 20 emails with raw HTML preserved
+  extractEmail --json all 10              Get last 10 emails in JSON format
+  extractEmail --json:html -n 1           Get email #1 with hierarchical JSON structure
+  extractEmail --json:table -n 1          Get email #1 with columnar table JSON format
   extractEmail -a -n 5                    Download attachments from email #5
   extractEmail -a from="boss@work.com"    Download attachments from boss's emails
 
  Task Sets:`;
 
-// Parse special arguments (--config, --test, --task, --number, --full-body, --attachment-download) and get remaining args.
-const { configName, testMode, taskName, outputPath, emailNumber, fullBody, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs } = parseSpecialArgs();
+// Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download) and get remaining args.
+const { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -239,18 +287,25 @@ var extract, count;
 const numericArgs = filteredArgs.filter(arg => /^\d+$/.test(arg));
 const nonNumericArgs = filteredArgs.filter(arg => !/^\d+$/.test(arg));
 
+// Calculate default count based on mode
+const getDefaultCount = () => {
+  if (jsonMode === 'html' || jsonMode === 'table') return 25;
+  if (fullBody || htmlMode || jsonMode === 'default') return 20;
+  return 100;
+};
+
 // If --task is provided, use it as the task name.
 if (taskName) {
   extract = taskName;
-  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : (fullBody ? 20 : 100);
+  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : getDefaultCount();
 } else if (nonNumericArgs.length === 0) {
   // No options specified, just count (or nothing)
   extract = "all";
-  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : (fullBody ? 20 : 100);
+  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : getDefaultCount();
 } else {
   // Use first non-numeric arg as extract option
   extract = nonNumericArgs[0];
-  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : (fullBody ? 20 : 100);
+  count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : getDefaultCount();
 }
 
 /************************************* SUPPORT FUNCTIONS *************************************/
@@ -305,10 +360,383 @@ let currentAttachmentSummary = false;
 const DEFAULT_RESPONSE_FILENAME = 'extractEmal.response.txt';
 const MAX_BODY_PREVIEW_LENGTH = 200;
 
-// Truncate body text to preview length (unless fullBody mode is enabled)
+// JSON mode accumulator
+let jsonOutput = {};
+let currentEmailKey = null;
+
+// Sanitize HTML to text with presentable formatting (respects block elements like p, div, br)
+const sanitizeHtml = (htmlContent) => {
+  if (!htmlContent) return htmlContent;
+  const text = String(htmlContent);
+
+  // Use html-to-text with options that respect basic HTML formatting
+  const sanitized = htmlToText(text, {
+    wordwrap: false,
+    preserveNewlines: true,
+    selectors: [
+      { selector: 'p', options: { leadingLineBreaks: 1, trailingLineBreaks: 1 } },
+      { selector: 'div', options: { leadingLineBreaks: 1, trailingLineBreaks: 1 } },
+      { selector: 'br', options: { leadingLineBreaks: 1 } },
+      { selector: 'h1', options: { uppercase: false, leadingLineBreaks: 2, trailingLineBreaks: 2 } },
+      { selector: 'h2', options: { uppercase: false, leadingLineBreaks: 2, trailingLineBreaks: 2 } },
+      { selector: 'h3', options: { uppercase: false, leadingLineBreaks: 2, trailingLineBreaks: 1 } },
+      {
+        selector: 'table',
+        format: 'dataTable'
+      },
+      { selector: 'a', options: { ignoreHref: true } }
+    ],
+    formatters: {
+      // Custom table formatter with pipe delimiters
+      // Converts HTML tables to pipe-delimited format: | cell | cell |
+      // Example output:
+      // | Field | Response |
+      // | Name | John Doe |
+      'dataTable': function (elem, walk, builder, formatOptions) {
+        builder.openBlock({ leadingLineBreaks: 1 });
+
+        const rows = [];
+
+        // Helper to extract text from a cell
+        const getCellText = (cell) => {
+          let text = '';
+          const extractText = (node) => {
+            if (!node) return;
+            if (node.type === 'text') {
+              text += node.data;
+            } else if (node.children) {
+              node.children.forEach(extractText);
+            }
+          };
+          if (cell.children) {
+            cell.children.forEach(extractText);
+          }
+          return text.replace(/\s+/g, ' ').trim();
+        };
+
+        // Process all rows
+        const processRows = (node) => {
+          if (!node) return;
+
+          if (node.name === 'tr') {
+            const cells = [];
+            if (node.children) {
+              node.children.forEach(child => {
+                if (child.name === 'td' || child.name === 'th') {
+                  cells.push(getCellText(child));
+                }
+              });
+            }
+            if (cells.length > 0) {
+              rows.push('| ' + cells.join(' | ') + ' |');
+            }
+          } else if (node.children) {
+            node.children.forEach(processRows);
+          }
+        };
+
+        processRows(elem);
+
+        if (rows.length > 0) {
+          builder.addInline(rows.join('\n'));
+        }
+
+        builder.closeBlock({ trailingLineBreaks: 1 });
+      }
+    }
+  });
+
+  return sanitized;
+};
+
+// Parse HTML to hierarchical JSON preserving DOM structure.
+// Uses htmlparser2 for proper DOM parsing instead of regex.
+const parseHtmlToHierarchicalJson = (htmlContent) => {
+  if (!htmlContent) return {};
+
+  const doc = parseDocument(htmlContent);
+
+  const SKIP_TAGS = new Set(['style', 'script', 'head', 'meta', 'link', 'noscript']);
+  const TRANSPARENT_TAGS = new Set(['html', 'body', 'tbody', 'thead', 'tfoot']);
+  const VOID_TAGS = new Set(['img', 'br', 'hr', 'input', 'wbr', 'col', 'area', 'base', 'embed', 'source', 'track']);
+
+  /** Get all text content recursively from a node. */
+  function getTextContent(node) {
+    if (node.type === 'text') return (node.data || '').replace(/\u00a0/g, ' ');
+    if (!node.children) return '';
+    return node.children.map(getTextContent).join('');
+  }
+
+  /** Extract table as array of row arrays. */
+  function processTable(tableNode) {
+    const rows = [];
+    function findRows(node) {
+      if (!node.children) return;
+      for (const child of node.children) {
+        if (child.type === 'tag' && child.name === 'tr') {
+          const cells = [];
+          for (const cell of (child.children || [])) {
+            if (cell.type === 'tag' && (cell.name === 'td' || cell.name === 'th')) {
+              cells.push(getTextContent(cell).trim());
+            }
+          }
+          if (cells.length > 0) rows.push(cells);
+        } else if (child.type === 'tag') {
+          findRows(child);
+        }
+      }
+    }
+    findRows(tableNode);
+    return rows;
+  }
+
+  /** Add value to result object, converting to array for duplicate keys. */
+  function addToResult(obj, key, value) {
+    if (key in obj) {
+      if (Array.isArray(obj[key]) && !Array.isArray(value)) {
+        obj[key].push(value);
+      } else {
+        obj[key] = [obj[key], value];
+      }
+    } else {
+      obj[key] = value;
+    }
+  }
+
+  /** Get meaningful children (non-empty text or non-skip/void tags). */
+  function getMeaningfulChildren(node) {
+    return (node.children || []).filter(c => {
+      if (c.type === 'text') return (c.data || '').trim().length > 0;
+      if (c.type === 'tag') return !SKIP_TAGS.has(c.name) && !VOID_TAGS.has(c.name);
+      return false;
+    });
+  }
+
+  /**
+   * Collapse single-child wrappers to the deepest meaningful tag.
+   * e.g. <div><p><span>text</span></p></div> → { tag: 'span', node: spanNode }
+   */
+  function collapseWrappers(node) {
+    const meaningful = getMeaningfulChildren(node);
+    if (meaningful.length === 1 && meaningful[0].type === 'tag') {
+      const child = meaningful[0];
+      if (child.name === 'table') return { tag: 'table', node: child };
+      if (TRANSPARENT_TAGS.has(child.name)) return collapseWrappers(child);
+      // If this child also has a single element child, keep collapsing
+      const grandchildren = getMeaningfulChildren(child);
+      if (grandchildren.length === 1 && grandchildren[0].type === 'tag') {
+        return collapseWrappers(child);
+      }
+      return { tag: child.name, node: child };
+    }
+    return { tag: node.name || 'root', node };
+  }
+
+  /** Process children of a node into a result object. */
+  function processChildren(children) {
+    const result = {};
+    let pendingText = '';
+
+    for (const child of children) {
+      if (child.type === 'text') {
+        const text = (child.data || '').replace(/\u00a0/g, ' ').trim();
+        if (text) {
+          pendingText += (pendingText ? ' ' : '') + text;
+        }
+        continue;
+      }
+
+      if (child.type !== 'tag') continue;
+      if (SKIP_TAGS.has(child.name)) continue;
+      if (VOID_TAGS.has(child.name)) continue;
+
+      // Flush pending text before a tag element
+      if (pendingText) {
+        addToResult(result, 'tag-data', pendingText);
+        pendingText = '';
+      }
+
+      // Table → extract as row arrays
+      if (child.name === 'table') {
+        addToResult(result, 'table', processTable(child));
+        continue;
+      }
+
+      // Transparent containers → merge children into current level
+      if (TRANSPARENT_TAGS.has(child.name)) {
+        const inner = processChildren(child.children || []);
+        for (const [k, v] of Object.entries(inner)) {
+          addToResult(result, k, v);
+        }
+        continue;
+      }
+
+      // Regular element → collapse single-child wrappers then process
+      const { tag, node: deepNode } = collapseWrappers(child);
+
+      if (tag === 'table') {
+        addToResult(result, 'table', processTable(deepNode));
+        continue;
+      }
+
+      const childResult = processElement(deepNode);
+      if (childResult !== null) {
+        addToResult(result, tag, childResult);
+      }
+    }
+
+    // Flush remaining text
+    if (pendingText) {
+      addToResult(result, 'tag-data', pendingText);
+    }
+
+    return result;
+  }
+
+  /** Process a single element node, returning its value. */
+  function processElement(node) {
+    const meaningful = getMeaningfulChildren(node);
+
+    // Leaf node or all-text children → return text content
+    if (meaningful.length === 0 || meaningful.every(c => c.type === 'text')) {
+      const text = getTextContent(node).trim();
+      return text || null;
+    }
+
+    // Mixed or element children → recurse
+    return processChildren(node.children || []);
+  }
+
+  // Process from document root
+  const result = processChildren(doc.children || []);
+
+  // Unwrap single top-level key that maps to an object (e.g. lone <html> wrapper)
+  const keys = Object.keys(result);
+  if (keys.length === 1 && typeof result[keys[0]] === 'object' && !Array.isArray(result[keys[0]])) {
+    return result[keys[0]];
+  }
+
+  return result;
+};
+
+// Parse HTML tables to columnar JSON format
+const parseHtmlTablesToColumnarJson = (htmlContent) => {
+  if (!htmlContent) return {};
+
+  // Find all tables in the HTML
+  const tableRegex = /<table[^>]*>(.*?)<\/table>/gis;
+  const tables = [];
+  let match;
+
+  while ((match = tableRegex.exec(htmlContent)) !== null) {
+    tables.push(match[1]);
+  }
+
+  if (tables.length === 0) {
+    // No tables found, return empty object
+    return {};
+  }
+
+  const result = {};
+
+  // Process each table (if multiple tables, merge columns)
+  tables.forEach((tableHtml, tableIndex) => {
+    const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
+    const rows = [];
+    let rowMatch;
+
+    while ((rowMatch = rowRegex.exec(tableHtml)) !== null) {
+      rows.push(rowMatch[1]);
+    }
+
+    if (rows.length === 0) return;
+
+    // Extract cells from each row
+    const cellRegex = /<(th|td)[^>]*>(.*?)<\/\1>/gis;
+    const parsedRows = rows.map(row => {
+      const cells = [];
+      let cellMatch;
+      // Reset regex for each row
+      const rowCellRegex = /<(th|td)[^>]*>(.*?)<\/\1>/gis;
+      while ((cellMatch = rowCellRegex.exec(row)) !== null) {
+        // Remove HTML tags and decode entities
+        let cellText = cellMatch[2]
+          .replace(/<[^>]+>/g, '') // Remove HTML tags
+          .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
+          .replace(/&amp;/g, '&')  // Replace &amp; with &
+          .replace(/&lt;/g, '<')   // Replace &lt; with <
+          .replace(/&gt;/g, '>')   // Replace &gt; with >
+          .replace(/&quot;/g, '"') // Replace &quot; with "
+          .replace(/&#39;/g, "'")  // Replace &#39; with '
+          .replace(/\r\n/g, ' ')   // Replace CRLF with space
+          .replace(/\n/g, ' ')     // Replace LF with space
+          .replace(/\s+/g, ' ')    // Collapse multiple spaces
+          .trim();
+        cells.push(cellText);
+      }
+      return cells;
+    });
+
+    if (parsedRows.length === 0) return;
+
+    // Use first row as headers (whether th or td)
+    const headers = parsedRows[0];
+    if (!headers || headers.length === 0) return;
+
+    // Initialize columns if not already present (for multiple tables)
+    headers.forEach(header => {
+      if (!result[header]) {
+        result[header] = [];
+      }
+    });
+
+    // Add data rows (skip first row which contains headers)
+    for (let i = 1; i < parsedRows.length; i++) {
+      const row = parsedRows[i];
+      headers.forEach((header, colIndex) => {
+        result[header].push(row[colIndex] || '');
+      });
+    }
+  });
+
+  return result;
+};
+
+// Process body based on mode: if htmlMode keep HTML, otherwise sanitize HTML to text
+const processBody = (bodyContent, isHtml = false) => {
+  if (!bodyContent) return bodyContent;
+
+  // If JSON mode with special arguments, parse accordingly
+  if (jsonMode === 'html' && isHtml) {
+    return parseHtmlToHierarchicalJson(bodyContent);
+  }
+
+  if (jsonMode === 'table' && isHtml) {
+    return parseHtmlTablesToColumnarJson(bodyContent);
+  }
+
+  // If it's HTML content and not in htmlMode, always sanitize to text
+  if (isHtml && !htmlMode) {
+    return sanitizeHtml(bodyContent);
+  }
+
+  // Otherwise return as-is (either it's plain text, or we're in htmlMode)
+  return bodyContent;
+};
+
+// Check if body has content (handles strings, objects, and other types)
+const hasBodyContent = (body) => {
+  if (!body) return false;
+  if (typeof body === 'string') return body.trim().length > 0;
+  if (typeof body === 'object') return Object.keys(body).length > 0;
+  return true;
+};
+
+// Truncate body text to preview length (unless fullBody or htmlMode is enabled)
 const truncateBody = (bodyText) => {
-  if (fullBody || emailNumber !== null) return bodyText; // Don't truncate in full-body or specific email mode
+  if (fullBody || htmlMode || emailNumber !== null) return bodyText; // Don't truncate in full-body, html, or specific email mode
   if (!bodyText) return bodyText;
+  if (typeof bodyText === 'object') return bodyText; // Preserve parsed JSON objects (json:html, json:table)
   const text = String(bodyText);
   if (text.length <= MAX_BODY_PREVIEW_LENGTH) return text;
   return text.substring(0, MAX_BODY_PREVIEW_LENGTH) + '...';
@@ -388,6 +816,33 @@ const setVal = (opt, headersPart, subject, body) => {
 var emailCount = 0;
 var totalEmailsToDisplay = 0;
 const outputToTerminal = (opt, val, h) => {
+  // If JSON mode, accumulate data instead of outputting
+  if (jsonMode) {
+    if (h == 0) {
+      const reversedNumber = totalEmailsToDisplay - emailCount;
+      currentEmailKey = `Email #${reversedNumber}`;
+      jsonOutput[currentEmailKey] = {};
+      emailCount++;
+    }
+    if (currentEmailKey) {
+      // Capitalize first letter of field name
+      const fieldName = opt[0].toUpperCase() + opt.substring(1);
+
+      // Handle field-specific formatting
+      if (opt === 'to' && typeof val === 'string' && val.includes(',')) {
+        // 'To' field as array if it contains commas
+        jsonOutput[currentEmailKey][fieldName] = val.split(',').map(v => v.trim());
+      } else if (opt === 'from' || opt === 'date') {
+        // 'From' and 'Date' should always be strings (extract first element if array)
+        jsonOutput[currentEmailKey][fieldName] = Array.isArray(val) ? val[0] : val;
+      } else {
+        jsonOutput[currentEmailKey][fieldName] = val;
+      }
+    }
+    return;
+  }
+
+  // Normal line-by-line output
   if (h == 0) {
     const reversedNumber = totalEmailsToDisplay - emailCount;
     writeOutputLine('');
@@ -732,15 +1187,30 @@ async function extractEmail() {
           let subject = headersPart.subject || '';
           if (Array.isArray(subject)) subject = subject.join(' ');
 
-          writeOutputLine('');
-          writeOutputLine(`=== Email #${emailNumber} ===`);
-          
           const struct = msg.attributes.struct;
           let body = '';
-          
-          // Try to find and fetch text/plain part first
+
+          // json:html and json:table need HTML structure for parsing
+          const needsHtmlStructure = (jsonMode === 'html' || jsonMode === 'table');
+
           const textPart = findTextPart(struct);
-          if (textPart) {
+          const htmlPart = findHtmlPart(struct);
+
+          // Prefer HTML part for better formatting (pipe-delimited tables, headings)
+          if (htmlPart) {
+            try {
+              const partData = await connection.getPartData(msg, htmlPart);
+              const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+              if (htmlContent && htmlContent.trim()) {
+                body = processBody(htmlContent, true);
+              }
+            } catch (err) {
+              console.error('Error fetching HTML part:', err);
+            }
+          }
+
+          // Fall back to text/plain if no HTML content
+          if (!hasBodyContent(body) && textPart) {
             try {
               const partData = await connection.getPartData(msg, textPart);
               body = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
@@ -748,26 +1218,9 @@ async function extractEmail() {
               console.error('Error fetching text part:', err);
             }
           }
-          
-          // If no text/plain, try HTML part
-          if (!body || !body.trim()) {
-            const htmlPart = findHtmlPart(struct);
-            if (htmlPart) {
-              try {
-                const partData = await connection.getPartData(msg, htmlPart);
-                const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
-                if (htmlContent && htmlContent.trim()) {
-                  const parsed = await simpleParser(htmlContent);
-                  body = parsed.text || parsed.html || '';
-                }
-              } catch (err) {
-                console.error('Error fetching HTML part:', err);
-              }
-            }
-          }
-          
+
           // Last resort: re-fetch message with TEXT body
-          if (!body || !body.trim()) {
+          if (!hasBodyContent(body)) {
             try {
               const uid = msg.attributes.uid;
               const fullFetchOptions = { bodies: ['TEXT'], struct: false };
@@ -785,15 +1238,38 @@ async function extractEmail() {
             }
           }
 
+          // Ensure body is processed for structured modes (json:html, json:table)
+          if (needsHtmlStructure && typeof body === 'string' && body.trim()) {
+            body = processBody(body, /<[a-z][\s\S]*>/i.test(body));
+          }
+
           currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
 
           // Output all fields for specific email number
-          writeOutputLine('From: ' + (headersPart.from || ''));
-          writeOutputLine('To: ' + (headersPart.to || ''));
-          writeOutputLine('Date: ' + (headersPart.date || ''));
-          writeOutputLine('Subject: ' + subject);
-          writeOutputLine('Attachment: ' + (currentAttachmentSummary || 'false'));
-          writeOutputLine('Body: ' + body);
+          if (jsonMode) {
+            // JSON output for specific email
+            const emailData = {
+              From: Array.isArray(headersPart.from) ? headersPart.from[0] : (headersPart.from || ''),
+              To: (headersPart.to || '').includes(',')
+                ? (headersPart.to || '').split(',').map(v => v.trim())
+                : headersPart.to || '',
+              Date: Array.isArray(headersPart.date) ? headersPart.date[0] : (headersPart.date || ''),
+              Subject: subject,
+              Attachment: currentAttachmentSummary || 'false',
+              Body: body
+            };
+            jsonOutput[`Email #${emailNumber}`] = emailData;
+          } else {
+            // Normal text output
+            writeOutputLine('');
+            writeOutputLine(`=== Email #${emailNumber} ===`);
+            writeOutputLine('From: ' + (headersPart.from || ''));
+            writeOutputLine('To: ' + (headersPart.to || ''));
+            writeOutputLine('Date: ' + (headersPart.date || ''));
+            writeOutputLine('Subject: ' + subject);
+            writeOutputLine('Attachment: ' + (currentAttachmentSummary || 'false'));
+            writeOutputLine('Body: ' + body);
+          }
 
           // Handle attachment download if requested
           if (attachmentDownload) {
@@ -801,6 +1277,13 @@ async function extractEmail() {
             await downloadAttachments(connection, msg, headersPart, downloadDir);
           }
         }
+
+        // Output JSON if in JSON mode
+        if (jsonMode) {
+          const jsonString = JSON.stringify(jsonOutput, null, 2);
+          writeOutputLine(jsonString);
+        }
+
         await connection.end();
         return;
       }
@@ -854,10 +1337,28 @@ async function extractEmail() {
 
         const struct = msg.attributes.struct;
         let body = '';
-        
-        // Try to find and fetch text/plain part first
+
+        // json:html and json:table need HTML structure for parsing
+        const needsHtmlStructure = (jsonMode === 'html' || jsonMode === 'table');
+
         const textPart = findTextPart(struct);
-        if (textPart) {
+        const htmlPart = findHtmlPart(struct);
+
+        // Prefer HTML part for better formatting (pipe-delimited tables, headings)
+        if (htmlPart) {
+          try {
+            const partData = await connection.getPartData(msg, htmlPart);
+            const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+            if (htmlContent && htmlContent.trim()) {
+              body = processBody(htmlContent, true);
+            }
+          } catch (err) {
+            console.error('Error fetching HTML part:', err);
+          }
+        }
+
+        // Fall back to text/plain if no HTML content
+        if (!hasBodyContent(body) && textPart) {
           try {
             const partData = await connection.getPartData(msg, textPart);
             body = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
@@ -865,26 +1366,9 @@ async function extractEmail() {
             console.error('Error fetching text part:', err);
           }
         }
-        
-        // If no text/plain, try HTML part
-        if (!body || !body.trim()) {
-          const htmlPart = findHtmlPart(struct);
-          if (htmlPart) {
-            try {
-              const partData = await connection.getPartData(msg, htmlPart);
-              const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
-              if (htmlContent && htmlContent.trim()) {
-                const parsed = await simpleParser(htmlContent);
-                body = parsed.text || parsed.html || '';
-              }
-            } catch (err) {
-              console.error('Error fetching HTML part:', err);
-            }
-          }
-        }
-        
+
         // Last resort: re-fetch message with TEXT body
-        if (!body || !body.trim()) {
+        if (!hasBodyContent(body)) {
           try {
             const uid = msg.attributes.uid;
             const fullFetchOptions = { bodies: ['TEXT'], struct: false };
@@ -902,6 +1386,11 @@ async function extractEmail() {
           }
         }
 
+        // Ensure body is processed for structured modes (json:html, json:table)
+        if (needsHtmlStructure && typeof body === 'string' && body.trim()) {
+          body = processBody(body, /<[a-z][\s\S]*>/i.test(body));
+        }
+
         currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
 
         // If option, else handle task.
@@ -911,6 +1400,13 @@ async function extractEmail() {
           await handleTask(extract, headersPart, subject, body, connection, msg, !!taskName);
         }
       }
+
+      // Output JSON if in JSON mode
+      if (jsonMode) {
+        const jsonString = JSON.stringify(jsonOutput, null, 2);
+        writeOutputLine(jsonString);
+      }
+
       await connection.end();
     } catch (err) {
       console.error('Error fetching emails:', err);

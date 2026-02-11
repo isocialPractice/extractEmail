@@ -125,7 +125,7 @@ export const testEmails = [
     attributes: {
       uid: 5,
       struct: [
-        { type: 'text', subtype: 'plain', partID: '1' }
+        { type: 'text', subtype: 'html', partID: '1' }
       ]
     },
     parts: [
@@ -140,6 +140,54 @@ export const testEmails = [
       }
     ],
     bodyText: 'Your issue has been resolved. Please let us know if you need further assistance.'
+  },
+  {
+    attributes: {
+      uid: 6,
+      struct: [
+        { type: 'text', subtype: 'html', partID: '1' }
+      ]
+    },
+    parts: [
+      {
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        body: {
+          from: ['survey@forms.com'],
+          to: ['recipient@test.com'],
+          subject: ['Survey Response'],
+          date: ['Sat, 27 Jan 2024 12:00:00 +0000']
+        }
+      }
+    ],
+    bodyHtml: '<html><body><p>Thank you for your response:</p><table><tr><th>Field</th><th>Response</th></tr><tr><td>Name</td><td>John Doe</td></tr><tr><td>Approved</td><td>Yes</td></tr><tr><td>Rating</td><td>5 stars</td></tr></table><p>Signature line here.</p></body></html>'
+  },
+  {
+    attributes: {
+      uid: 7,
+      struct: [
+        {
+          type: 'multipart',
+          subtype: 'alternative',
+          parts: [
+            { type: 'text', subtype: 'plain', partID: '1' },
+            { type: 'text', subtype: 'html', partID: '2' }
+          ]
+        }
+      ]
+    },
+    parts: [
+      {
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        body: {
+          from: ['marketing@example.com'],
+          to: ['recipient@test.com'],
+          subject: ['Survey Response'],
+          date: ['Sun, 28 Jan 2024 09:00:00 +0000']
+        }
+      }
+    ],
+    bodyText: ' Field\r\nResponse\r\Name\r\nJohn Doe\r\nUse Product\r\nYes\r\nWill Update\r\nYes\r\nAverage Use\r\nweekly\r\n\r\n\r\nTake Care,',
+    bodyHtml: '<html><body><h1>Email Data</h1><table style="margin-bottom:1px"><tbody><tr><td><div>&nbsp;Field</div></td><td><div>Response</div></td></tr><tr><td><div>Name</div></td><td><div>John Doe</div></td></tr><tr><td><div>Use Product</div></td><td><div>Yes</div></td></tr><tr><td><div>Will Update</div></td><td><div>Yes</div></td></tr><tr><td><div>Average Use</div></td><td><div>weekly</div></td></tr></tbody></table><div><span>Take Care,</span></div><div><a href="mailto:marketing@example.com">Example Marketing</a></div></body></html>'
   }
 ];
 
@@ -179,6 +227,11 @@ class MockConnection {
     // Check if requesting attachment
     if (part.partID && email.attachments && email.attachments[part.partID]) {
       return email.attachments[part.partID];
+    }
+
+    // Return HTML body if HTML part, otherwise text body
+    if (part.subtype === 'html' && email.bodyHtml) {
+      return email.bodyHtml;
     }
 
     // Return body text
