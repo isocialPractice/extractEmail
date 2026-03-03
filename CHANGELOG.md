@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `{{ }}` template syntax for task filter patterns — wrap a regex in `{{ expr }}` for full regex
+  matching; wrap a date placeholder like `{{ dates.year }}` for auto-resolved literal date values
+- `helpers/dateHelper.mjs` — provides `getDateValues()` mapping all
+  `{{ dates.* }}` placeholders to their current values via `@jhauga/getDate`
+- `helpers/filterHelper.mjs` — provides `resolveFilterPattern()` and
+  `testPattern()` for template-aware filter evaluation in tasks
+- `@jhauga/getdate` dependency for cross-platform date retrieval in filter templates
+- `-i, --ignore <rule>` option to ignore emails or attachments matching a pattern
+  - Supports glob wildcards (`*.jpg`), `{{ regex }}`, and `{{ dates.* }}` templates
+  - Fields: `from`, `subject`, `body`, `attachment` (alias: `att`)
+  - Multiple rules via repeated `-i` flags or bracket notation `-i [field="pat", ...]`
+  - Array values: `-i attachment=["*.jpg","*.png"]`
+  - Attachment ignore works universally with built-in download and task files (via Proxy wrapper)
+
+### Changed
+- Email processing now iterates newest-first (Email #1 is fetched and processed first, not last)
+- `--task` combined with `-a` now routes correctly through the task's own attachment logic
+  instead of the built-in CLI attachment handler
+- `--task` combined with `-n <num>` now runs the task against that specific email instead of
+  outputting the email directly
+- Moved `extractEmailTasks/helpers/` to `helpers/` at project root for shared access
+  across main script and task files
+
+### Fixed
+- Task filter patterns using `resolveFilterPattern()` now return a backwards-compatible object
+  with `.toLowerCase()` so existing task files using old-style string comparisons continue to work
+- `-a` flag no longer bypasses `--task` execution (tasks with their own download logic now run)
+- `-n` flag no longer bypasses `--task` execution (task runs against the specific email)
+- Attachment summary now correctly filtered by `-i` rules in `-n` specific email path
+
 ## [2.0.0]
 
 Releasing version `2.0.0` as new options and improved handling of output merit a major version update.

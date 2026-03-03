@@ -9,6 +9,7 @@ import { pathToFileURL, fileURLToPath } from 'url';
 import { simpleParser } from 'mailparser';
 import { convert as htmlToText } from 'html-to-text';
 import { parseDocument } from 'htmlparser2';
+import { resolveFilterPattern, testPattern } from './helpers/filterHelper.mjs';
 // imap-simple is loaded dynamically to support --test mode without dependencies
 
 // Get directory of this script for resolving relative paths.
@@ -69,6 +70,79 @@ async function loadConfig(configName) {
   return configModule.configEmail;
 }
 
+
+// --- Ignore option (-i/--ignore) helpers ---
+
+// Normalize field aliases for -i option.
+function normalizeIgnoreField(field) {
+  field = field.trim().toLowerCase();
+  if (field === 'attachments' || field === 'att') return 'attachment';
+  return field;
+}
+
+// Convert a raw ignore value to a resolved pattern.
+// Supports {{ }} template/regex syntax, glob wildcards (* ?), and plain substring.
+function parseIgnoreValue(raw) {
+  raw = raw.replace(/^["']|["']$/g, '');
+  if (raw.includes('{{')) {
+    return resolveFilterPattern(raw);
+  }
+  if (raw.includes('*') || raw.includes('?')) {
+    // Escape regex special chars, then convert glob wildcards
+    const specials = '.+^${}()|[]\\';
+    let pat = '';
+    for (const ch of raw) {
+      if (ch === '*') pat += '.*';
+      else if (ch === '?') pat += '.';
+      else if (specials.includes(ch)) pat += '\\' + ch;
+      else pat += ch;
+    }
+    return { type: 'regex', value: new RegExp('^' + pat + '$', 'i') };
+  }
+  return resolveFilterPattern(raw);
+}
+
+// Parse a single -i argument value into an array of { field, patterns } rules.
+function parseIgnoreArg(val) {
+  const rules = [];
+
+  // Bracket notation: -i [attachment="*.jpg", from="spam"]
+  const bracketMatch = val.match(/^\s*\[(.+)\]\s*$/);
+  if (bracketMatch) {
+    const ruleRegex = /(\w+)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*'|\S+)/g;
+    let m;
+    while ((m = ruleRegex.exec(bracketMatch[1])) !== null) {
+      const field = normalizeIgnoreField(m[1]);
+      let rawVal = m[2].replace(/^["']|["']$/g, '');
+      const arrMatch = rawVal.match(/^\[(.+)\]$/);
+      if (arrMatch) {
+        const patterns = arrMatch[1].split(',').map(s => parseIgnoreValue(s.trim()));
+        rules.push({ field, patterns });
+      } else {
+        rules.push({ field, patterns: [parseIgnoreValue(rawVal)] });
+      }
+    }
+    return rules;
+  }
+
+  // Simple: field="pattern" or field=["p1","p2"]
+  const eqIdx = val.indexOf('=');
+  if (eqIdx > 0) {
+    const field = normalizeIgnoreField(val.substring(0, eqIdx));
+    let rawVal = val.substring(eqIdx + 1).replace(/^["']|["']$/g, '');
+    const arrMatch = rawVal.match(/^\[(.+)\]$/);
+    if (arrMatch) {
+      const patterns = arrMatch[1].split(',').map(s => parseIgnoreValue(s.trim()));
+      rules.push({ field, patterns });
+    } else {
+      rules.push({ field, patterns: [parseIgnoreValue(rawVal)] });
+    }
+    return rules;
+  }
+
+  return rules;
+}
+
 /**
  * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --html, --json, --attachment-download) from arguments.
  * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, fromFilter: string|null, subjectFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
@@ -87,6 +161,7 @@ function parseSpecialArgs() {
   let fromFilter = null;
   let subjectFilter = null;
   let attachmentFilter = false;
+  const ignoreRules = [];
   const filteredArgs = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -138,12 +213,16 @@ function parseSpecialArgs() {
       attachmentFilter = val === 'true';
     } else if (arg === '--test') {
       testMode = true;
+    } else if (arg === '--ignore' || arg === '-i') {
+      if (i + 1 >= args.length) throw new Error('Missing value for -i/--ignore');
+      const ignoreVal = args[++i];
+      ignoreRules.push(...parseIgnoreArg(ignoreVal));
     } else {
       filteredArgs.push(arg);
     }
   }
 
-  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, ignoreRules, filteredArgs };
 }
 
 /**
@@ -232,6 +311,17 @@ const help = `
                         Column values stored as arrays
                         Example: extractEmail --json:table -n 1
 
+  -i, --ignore <rule>  Ignore emails or attachments matching a pattern
+                        Supports glob wildcards (*.jpg), {{ regex }}, {{ dates.* }}
+                        Fields: from, subject, body, attachment
+                        Examples:
+                          -i attachment="*.jpg"
+                          -i from="noreply@spam.com"
+                          -i subject="{{ [Ss]pam.* }}"
+                          -i attachment="*.jpg" -i from="ads@"
+                          -i [attachment="*.jpg", from="ads@"]
+                          -i attachment=["*.jpg","*.png"]
+
   -a, --attachment-download
                         Download attachment(s) from email(s)
                         Requires one of: -n <num>, from="email@site.com",
@@ -267,11 +357,13 @@ const help = `
   extractEmail --json:table -n 1          Get email #1 with columnar table JSON format
   extractEmail -a -n 5                    Download attachments from email #5
   extractEmail -a from="boss@work.com"    Download attachments from boss's emails
+  extractEmail -i attachment="*.jpg" -a -n 5  Download non-.jpg attachments from email #5
+  extractEmail -i from="ads@co.com" subject 50  Ignore emails from ads when listing subjects
 
  Task Sets:`;
 
 // Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download) and get remaining args.
-const { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, filteredArgs } = parseSpecialArgs();
+const { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, ignoreRules, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -308,6 +400,65 @@ if (taskName) {
   count = numericArgs.length > 0 ? parseInt(numericArgs[0], 10) : getDefaultCount();
 }
 
+
+// Check if a value matches any ignore rule for the given field.
+function checkIgnoreField(value, field) {
+  const rules = ignoreRules.filter(r => r.field === field);
+  for (const rule of rules) {
+    for (const pattern of rule.patterns) {
+      if (testPattern(String(value || ''), pattern)) return true;
+    }
+  }
+  return false;
+}
+
+// Get filename from an IMAP struct part or parsed attachment object.
+function getPartFilenameForIgnore(part) {
+  if (part.disposition && part.disposition.params && part.disposition.params.filename) {
+    return part.disposition.params.filename;
+  }
+  if (part.params && part.params.name) return part.params.name;
+  if (part.params && part.params.filename) return part.params.filename;
+  if (part.filename) return part.filename;
+  if (part.subtype) return 'attachment.' + part.subtype.toLowerCase();
+  return null;
+}
+
+// Wrap connection.getPartData to skip ignored attachments (returns null).
+// This makes -i attachment work universally with all task files.
+function wrapConnectionForIgnore(connection) {
+  const attRules = ignoreRules.filter(r => r.field === 'attachment');
+  if (attRules.length === 0) return connection;
+
+  const origGetPartData = connection.getPartData.bind(connection);
+  return new Proxy(connection, {
+    get(target, prop) {
+      if (prop === 'getPartData') {
+        return async function(msg, part) {
+          const filename = getPartFilenameForIgnore(part);
+          if (filename && checkIgnoreField(filename, 'attachment')) {
+            console.log('  Ignoring attachment: ' + filename);
+            return null;
+          }
+          return origGetPartData(msg, part);
+        };
+      }
+      const val = target[prop];
+      return typeof val === 'function' ? val.bind(target) : val;
+    }
+  });
+}
+
+// Filter attachment summary to remove ignored attachment names.
+function filterIgnoredAttachmentSummary(summary) {
+  const attRules = ignoreRules.filter(r => r.field === 'attachment');
+  if (attRules.length === 0 || !summary || summary === true) return summary;
+  const names = String(summary).split(', ');
+  const filtered = names.filter(name => !checkIgnoreField(name, 'attachment'));
+  if (filtered.length === 0) return false;
+  return filtered.length === 1 ? filtered[0] : filtered.join(', ');
+}
+
 /************************************* SUPPORT FUNCTIONS *************************************/
 // Check if a task exists
 function checkExtractTask(opt, useTaskFlag = false) {
@@ -342,7 +493,8 @@ async function callExtractEmailTask(opt, headersPart, subject, body, connection 
 
     if (taskModule.default && typeof taskModule.default === 'function') {
       // Pass extended context for advanced tasks (connection, msg for attachment access)
-      const context = { connection, msg, __dirname, outputOptions };
+      const wrappedConn = wrapConnectionForIgnore(connection);
+      const context = { connection: wrappedConn, msg, __dirname, outputOptions, ignoreRules, downloadAttachments };
       await taskModule.default(headersPart, subject, body, setVal, outputToTerminal, context);
       return true;
     }
@@ -814,12 +966,11 @@ const setVal = (opt, headersPart, subject, body) => {
 
 // Constant output to terminal.
 var emailCount = 0;
-var totalEmailsToDisplay = 0;
 const outputToTerminal = (opt, val, h) => {
   // If JSON mode, accumulate data instead of outputting
   if (jsonMode) {
     if (h == 0) {
-      const reversedNumber = totalEmailsToDisplay - emailCount;
+      const reversedNumber = emailCount + 1;
       currentEmailKey = `Email #${reversedNumber}`;
       jsonOutput[currentEmailKey] = {};
       emailCount++;
@@ -844,7 +995,7 @@ const outputToTerminal = (opt, val, h) => {
 
   // Normal line-by-line output
   if (h == 0) {
-    const reversedNumber = totalEmailsToDisplay - emailCount;
+    const reversedNumber = emailCount + 1;
     writeOutputLine('');
     writeOutputLine(`=== Email #${reversedNumber} ===`);
     emailCount++;
@@ -1077,13 +1228,49 @@ const handleTask = async (opt, headersPart, subject, body, connection = null, ms
   }
 };
 
+// Resolve a unique file path for a numbered attachment prefix with collision handling.
+// Single attachment (no prefix): returns path.join(outputDir, filename).
+// Multiple attachments: returns path.join(outputDir, `${n}_${filename}`).
+// If that path already exists, appends a letter: `${n}a_`, `${n}b_`, ...
+function resolveAttachmentPath(outputDir, filename, n, usePrefix) {
+  if (!usePrefix) {
+    return path.join(outputDir, filename);
+  }
+  const base = `${n}_${filename}`;
+  const candidate = path.join(outputDir, base);
+  if (!fs.existsSync(candidate)) return candidate;
+  for (let c = 0; c < 26; c++) {
+    const suffix = String.fromCharCode('a'.charCodeAt(0) + c);
+    const alt = path.join(outputDir, `${n}${suffix}_${filename}`);
+    if (!fs.existsSync(alt)) return alt;
+  }
+  return null; // exhausted a-z
+}
+
 // Download attachments from a message
 async function downloadAttachments(connection, msg, headersPart, outputDir) {
   const struct = msg.attributes.struct;
   const attachments = findAttachmentsInStruct(struct);
-  
+
   if (!attachments || attachments.length === 0) {
     console.log('No attachments found in this email.');
+    return;
+  }
+
+  // Pre-filter to determine downloadable (post-ignore) attachments.
+  // Log ignored ones up-front so the count shown is accurate.
+  const downloadable = [];
+  for (const att of attachments) {
+    const filename = getAttachmentFilename(att);
+    if (checkIgnoreField(filename, 'attachment')) {
+      console.log('  Ignoring attachment: ' + filename);
+    } else {
+      downloadable.push(att);
+    }
+  }
+
+  if (downloadable.length === 0) {
+    console.log('No attachments to download after filtering.');
     return;
   }
 
@@ -1092,17 +1279,25 @@ async function downloadAttachments(connection, msg, headersPart, outputDir) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  console.log(`\nDownloading ${attachments.length} attachment(s)...`);
+  console.log(`\nDownloading ${downloadable.length} attachment(s)...`);
 
-  for (const attachment of attachments) {
+  // Use digit prefix only when there are multiple downloadable attachments.
+  const usePrefix = downloadable.length > 1;
+
+  for (let idx = 0; idx < downloadable.length; idx++) {
+    const attachment = downloadable[idx];
     try {
       const filename = getAttachmentFilename(attachment);
       const partData = await connection.getPartData(msg, attachment);
-      const filePath = path.join(outputDir, filename);
-      
-      // Write the attachment to disk
-      fs.writeFileSync(filePath, partData);
-      console.log(`✓ Downloaded: ${filename}`);
+      const targetPath = resolveAttachmentPath(outputDir, filename, idx + 1, usePrefix);
+
+      if (!targetPath) {
+        console.error(`✗ Could not find unique filename for: ${filename}`);
+        continue;
+      }
+
+      fs.writeFileSync(targetPath, partData);
+      console.log(`✓ Downloaded: ${path.basename(targetPath)}`);
     } catch (err) {
       console.error(`✗ Error downloading attachment:`, err.message);
     }
@@ -1171,6 +1366,9 @@ async function extractEmail() {
 
       const messages = await connection.search(searchCriteria, fetchOptions);
 
+      // Sort newest-received first by INTERNALDATE.
+      messages.sort((a, b) => new Date(b.attributes.date || 0) - new Date(a.attributes.date || 0));
+
       // Handle specific email number request
       if (emailNumber !== null) {
         if (emailNumber < 1 || emailNumber > messages.length) {
@@ -1179,7 +1377,7 @@ async function extractEmail() {
           return;
         }
         // Get the specific email (1-indexed from newest, so #1 = most recent)
-        const specificMsg = messages[messages.length - emailNumber];
+        const specificMsg = messages[emailNumber - 1];
         const lastMessages = [specificMsg];
         
         for (const [i, msg] of lastMessages.entries()) {
@@ -1244,6 +1442,7 @@ async function extractEmail() {
           }
 
           currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
+          currentAttachmentSummary = filterIgnoredAttachmentSummary(currentAttachmentSummary);
 
           // Output all fields for specific email number
           if (jsonMode) {
@@ -1288,10 +1487,10 @@ async function extractEmail() {
         return;
       }
 
-      // Handle attachment download with filters
-      if (attachmentDownload && !emailNumber) {
+      // Handle attachment download with filters (no task -- task handles its own download logic).
+      if (attachmentDownload && !emailNumber && !taskName) {
         let foundMatch = false;
-        for (const [i, msg] of messages.entries()) {
+        for (const [i, msg] of messages.slice(0, count).entries()) {
           const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
           let subject = headersPart.subject || '';
           if (Array.isArray(subject)) subject = subject.join(' ');
@@ -1320,17 +1519,22 @@ async function extractEmail() {
         return;
       }
 
-      // Look at the last N messages
-      const lastMessages = messages.slice(-count);
-      
-      // Set total count for reversed numbering (newest = #1)
-      totalEmailsToDisplay = lastMessages.length;
+      // Take first N messages (already sorted newest-first).
+      const lastMessages = messages.slice(0, count);
+
       emailCount = 0;
 
       for (const [i, msg] of lastMessages.entries()) {
         const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
         let subject = headersPart.subject || '';
         if (Array.isArray(subject)) subject = subject.join(' ');
+
+        // Apply email-level ignore rules (-i from/subject/body).
+        if (ignoreRules.length > 0) {
+          const fromStr = Array.isArray(headersPart.from) ? headersPart.from.join(' ') : (headersPart.from || '');
+          if (checkIgnoreField(fromStr, 'from')) continue;
+          if (checkIgnoreField(subject, 'subject')) continue;
+        }
 
         // Check if task set or option.
         handleTaskSets(extract);
@@ -1392,6 +1596,7 @@ async function extractEmail() {
         }
 
         currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
+        currentAttachmentSummary = filterIgnoredAttachmentSummary(currentAttachmentSummary);
 
         // If option, else handle task.
         if (optionCall == 1 && !taskName) {

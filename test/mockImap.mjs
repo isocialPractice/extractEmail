@@ -8,6 +8,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 1,
+      date: new Date('Mon, 01 Jan 2024 10:00:00 +0000'),
       struct: [
         { type: 'text', subtype: 'plain', partID: '1' }
       ]
@@ -28,6 +29,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 2,
+      date: new Date('Tue, 15 Jan 2024 09:30:00 +0000'),
       struct: [
         { type: 'text', subtype: 'plain', partID: '1' }
       ]
@@ -48,6 +50,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 3,
+      date: new Date('Wed, 20 Jan 2024 14:22:00 +0000'),
       struct: [
         { type: 'text', subtype: 'plain', partID: '1' }
       ]
@@ -68,6 +71,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 4,
+      date: new Date('Thu, 25 Jan 2024 08:00:00 +0000'),
       struct: [
         {
           type: 'multipart',
@@ -124,6 +128,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 5,
+      date: new Date('Fri, 26 Jan 2024 16:45:00 +0000'),
       struct: [
         { type: 'text', subtype: 'html', partID: '1' }
       ]
@@ -144,6 +149,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 6,
+      date: new Date('Sat, 27 Jan 2024 12:00:00 +0000'),
       struct: [
         { type: 'text', subtype: 'html', partID: '1' }
       ]
@@ -164,6 +170,7 @@ export const testEmails = [
   {
     attributes: {
       uid: 7,
+      date: new Date('Sun, 28 Jan 2024 09:00:00 +0000'),
       struct: [
         {
           type: 'multipart',

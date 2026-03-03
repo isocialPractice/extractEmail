@@ -4,5 +4,6 @@ accounts/*.mjs
 extractEmailTasks/*.js
 !extractEmailTasks/*.template
 configEmailExtraction.mjs
-node_modules/ 
-icon.svg 
+node_modules/
+icon.svg
+_userTestLines.txt

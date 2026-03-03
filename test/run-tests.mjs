@@ -96,6 +96,145 @@ function assertNotContains(output, unexpected, testName) {
 // TEST SUITES
 // ============================================================================
 
+async function testFilterHelper() {
+  console.log('\n[Test Suite] Filter Helper (Regex & Date Templates)\n');
+
+  const { resolveFilterPattern, testPattern } =
+    await import('../helpers/filterHelper.mjs');
+
+  // --- resolveFilterPattern type detection ---
+
+  const plain = resolveFilterPattern('invoice');
+  if (plain && plain.type === 'string') {
+    console.log('  ✓ Plain string pattern resolves to type "string"');
+    passed++;
+  } else {
+    console.log('  ✗ Plain string pattern resolves to type "string"');
+    failed++;
+  }
+
+  const regexPat = resolveFilterPattern('{{ [0-9]+ }}');
+  if (regexPat && regexPat.type === 'regex') {
+    console.log('  ✓ {{ regex }} pattern resolves to type "regex"');
+    passed++;
+  } else {
+    console.log('  ✗ {{ regex }} pattern resolves to type "regex"');
+    failed++;
+  }
+
+  const datePat = resolveFilterPattern('{{ dates.year }}');
+  if (datePat && datePat.type === 'regex') {
+    console.log('  ✓ {{ dates.year }} resolves to type "regex"');
+    passed++;
+  } else {
+    console.log('  ✗ {{ dates.year }} resolves to type "regex"');
+    failed++;
+  }
+
+  const nullPat = resolveFilterPattern(null);
+  if (nullPat === null) {
+    console.log('  ✓ null pattern resolves to null');
+    passed++;
+  } else {
+    console.log('  ✗ null pattern resolves to null');
+    failed++;
+  }
+
+  // --- testPattern: plain string ---
+
+  assertContains(
+    testPattern('Invoice #12345', resolveFilterPattern('invoice')) ? 'match' : '',
+    'match',
+    'Plain string: case-insensitive match succeeds'
+  );
+  assertNotContains(
+    testPattern('Monthly Report', resolveFilterPattern('invoice')) ? 'match' : '',
+    'match',
+    'Plain string: non-matching text returns false'
+  );
+
+  // --- testPattern: null pattern always passes ---
+
+  assertContains(
+    testPattern('anything at all', null) ? 'pass' : '',
+    'pass',
+    'Null pattern always passes (skip filter)'
+  );
+
+  // --- testPattern: regex patterns ---
+
+  assertContains(
+    testPattern('Invoice #12345', resolveFilterPattern('{{ Invoice.*#[0-9]+ }}')) ? 'match' : '',
+    'match',
+    'Regex pattern: matches Invoice #12345'
+  );
+  assertNotContains(
+    testPattern('Monthly Report', resolveFilterPattern('{{ Invoice.*#[0-9]+ }}')) ? 'match' : '',
+    'match',
+    'Regex pattern: non-matching subject returns false'
+  );
+
+  // Regex from subject in mock data
+  assertContains(
+    testPattern('Re: Your support ticket #789', resolveFilterPattern('{{ .*ticket #[0-9]+ }}')) ? 'match' : '',
+    'match',
+    'Regex pattern: matches support ticket subject'
+  );
+
+  // --- testPattern: date helpers ---
+
+  // Get current year using the same getDate the helper uses
+  const { getDateValues } = await import('../helpers/dateHelper.mjs');
+  const dateVals = getDateValues();
+  const currentYear  = dateVals['dates.year'];
+  const currentMonth = dateVals['dates.month'];
+  const lastYear     = dateVals['dates.lastYear'];
+
+  assertContains(
+    testPattern(`Report ${currentYear}`, resolveFilterPattern('{{ dates.year }}')) ? 'match' : '',
+    'match',
+    `{{ dates.year }} matches "Report ${currentYear}"`
+  );
+  assertNotContains(
+    testPattern(`Report ${lastYear}`, resolveFilterPattern('{{ dates.year }}')) ? 'match' : '',
+    'match',
+    `{{ dates.year }} does not match "Report ${lastYear}" (last year)`
+  );
+  assertContains(
+    testPattern(`${currentMonth} newsletter`, resolveFilterPattern('{{ dates.month }}')) ? 'match' : '',
+    'match',
+    `{{ dates.month }} matches "${currentMonth} newsletter"`
+  );
+
+  // --- testPattern: mixed literal + date ---
+
+  const mixedPat = resolveFilterPattern(`Report - {{ dates.month }}`);
+  assertContains(
+    testPattern(`Report - ${currentMonth} 2024`, mixedPat) ? 'match' : '',
+    'match',
+    `Mixed literal+date matches "Report - ${currentMonth} 2024"`
+  );
+  assertNotContains(
+    testPattern('Report - April 1900', mixedPat) ? 'match' : '',
+    'match',
+    'Mixed literal+date: wrong month returns false'
+  );
+
+  // --- testPattern: mixed literal + regex ---
+
+  const litRegex = resolveFilterPattern('Invoice {{ #[0-9]+ }}');
+  assertContains(
+    testPattern('Invoice #12345', litRegex) ? 'match' : '',
+    'match',
+    'Literal+regex: "Invoice #12345" matched'
+  );
+  assertNotContains(
+    testPattern('Invoice ABC', litRegex) ? 'match' : '',
+    'match',
+    'Literal+regex: "Invoice ABC" not matched (no digits)'
+  );
+}
+
 async function testBasicExtraction() {
   console.log('\n[Test Suite] Basic Field Extraction\n');
 
@@ -297,6 +436,7 @@ async function main() {
   setupStopTask();
 
   try {
+    await testFilterHelper();
     await testHelpOutput();
     await testBasicExtraction();
     await testStopTask();

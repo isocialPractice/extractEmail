@@ -5,28 +5,50 @@
 import fs from 'fs';
 import path from 'path';
 import { simpleParser } from 'mailparser';
+import { resolveFilterPattern, testPattern } from '../helpers/filterHelper.mjs';
 
 /*******************************************************************************
  * FILTER CONFIGURATION - Modify these values to filter emails
  *
  * Set any filter to null or empty string to skip that filter.
  * All specified filters must match for an email to be processed.
+ *
+ * Plain string patterns use case-insensitive substring matching (existing behavior).
+ *
+ * Template/regex patterns use {{ }} syntax:
+ *   {{ expr }}         - Raw regular expression segment (case-insensitive)
+ *   {{ dates.year }}   - Current year, e.g. "2026"  (escaped literal, not regex)
+ *   {{ dates.month }}  - Current month name, e.g. "March"
+ *   See helpers/filterHelper.mjs for the full list of
+ *   {{ dates.* }} placeholders and more regex examples.
+ *
+ * Examples:
+ *   "noreply@example.com"            plain substring match
+ *   "{{ .*@invoices\\.com }}"        regex: any address at invoices.com
+ *   "Invoice {{ #[0-9]+ }}"          literal "Invoice " then a # followed by digits
+ *   "{{ dates.month }} {{ dates.year }}" literal current month + year, e.g. "March 2026"
+ *   "Report.*{{ dates.year }}"       regex: "Report" then anything then current year
  ******************************************************************************/
 const FILTER_CONFIG = {
-  // Filter by sender email address (case-insensitive, partial match)
-  // Example: "noreply@example.com" or "example.com"
+  // Filter by sender email address
+  // Example: "noreply@example.com"  or  "{{ .*@invoices\\.com }}"
   fromPattern: null,
 
-  // Filter by subject line (case-insensitive, partial match)
-  // Example: "Invoice" or "Monthly Report"
+  // Filter by subject line
+  // Example: "Invoice"  or  "{{ Invoice #[0-9]+ }}"  or  "Report {{ dates.year }}"
   subjectPattern: null,
 
-  // Filter by body text (case-insensitive, partial match)
-  // Example: "attached" or "please find"
+  // Filter by body text
+  // Example: "attached"  or  "{{ please find.*attached }}"
   bodyPattern: null,
 };
 
 // Output folder is controlled by -o/--output-folder (defaults to current working directory).
+
+// Resolve filter patterns once at startup (supports {{ regex }} and {{ dates.* }} syntax).
+const resolvedFrom    = resolveFilterPattern(FILTER_CONFIG.fromPattern);
+const resolvedSubject = resolveFilterPattern(FILTER_CONFIG.subjectPattern);
+const resolvedBody    = resolveFilterPattern(FILTER_CONFIG.bodyPattern);
 
 /*******************************************************************************
  * END OF CONFIGURATION
@@ -34,32 +56,16 @@ const FILTER_CONFIG = {
 
 /**
  * Check if email matches all specified filter criteria.
+ * Supports plain substrings and {{ regex }} / {{ dates.* }} template patterns.
  */
 function matchesFilters(headersPart, subject, body) {
   const from = Array.isArray(headersPart.from)
     ? headersPart.from.join(' ')
     : (headersPart.from || '');
 
-  // Check fromPattern
-  if (FILTER_CONFIG.fromPattern) {
-    if (!from.toLowerCase().includes(FILTER_CONFIG.fromPattern.toLowerCase())) {
-      return false;
-    }
-  }
-
-  // Check subjectPattern
-  if (FILTER_CONFIG.subjectPattern) {
-    if (!subject.toLowerCase().includes(FILTER_CONFIG.subjectPattern.toLowerCase())) {
-      return false;
-    }
-  }
-
-  // Check bodyPattern
-  if (FILTER_CONFIG.bodyPattern) {
-    if (!body.toLowerCase().includes(FILTER_CONFIG.bodyPattern.toLowerCase())) {
-      return false;
-    }
-  }
+  if (!testPattern(from,    resolvedFrom))    return false;
+  if (!testPattern(subject, resolvedSubject)) return false;
+  if (!testPattern(body,    resolvedBody))    return false;
 
   return true;
 }
@@ -234,7 +240,7 @@ export default async function downloadAttachmentsTask(
   outputToTerminal,
   context
 ) {
-  const { connection, msg, outputOptions } = context;
+  const { connection, msg, outputOptions, ignoreRules } = context;
 
   // Check if email matches filter criteria
   if (!matchesFilters(headersPart, subject, body)) {
@@ -264,16 +270,37 @@ export default async function downloadAttachmentsTask(
     return;
   }
 
+  // Pre-filter entries using -i/--ignore rules so ignored attachments are excluded
+  // from sequential numbering before targets are built.
+  const attIgnoreRules = (ignoreRules || []).filter(r => r.field === 'attachment');
+  const downloadableEntries = attIgnoreRules.length === 0
+    ? attachmentEntries
+    : attachmentEntries.filter(entry => {
+        for (const rule of attIgnoreRules) {
+          for (const pattern of rule.patterns) {
+            if (testPattern(String(entry.filename || ''), pattern)) {
+              console.log(`  Ignoring attachment: ${entry.filename}`);
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+
+  if (downloadableEntries.length === 0) {
+    return;
+  }
+
   // Output email info
   outputToTerminal('subject', subject, 0);
   const from = Array.isArray(headersPart.from)
     ? headersPart.from.join(', ')
     : headersPart.from;
   outputToTerminal('from', from, 1);
-  console.log(`  Found ${attachmentEntries.length} attachment(s)`);
+  console.log(`  Found ${downloadableEntries.length} attachment(s)`);
 
   const outputBase = resolveOutputBase(outputOptions);
-  const attachmentTargets = buildAttachmentTargets(attachmentEntries, outputBase);
+  const attachmentTargets = buildAttachmentTargets(downloadableEntries, outputBase);
 
   const outputDir = outputBase.type === 'file'
     ? path.dirname(outputBase.path)

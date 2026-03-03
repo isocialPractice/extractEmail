@@ -546,20 +546,71 @@ Edit `extractEmailTasks/downloadAttachments.js` to configure filters:
 
 ```javascript
 const FILTER_CONFIG = {
-  // Filter by sender (case-insensitive, partial match)
+  // Filter by sender (plain substring or {{ template }} pattern)
   fromPattern: "noreply@example.com",
 
-  // Filter by subject (case-insensitive, partial match)
+  // Filter by subject (plain substring or {{ template }} pattern)
   subjectPattern: "Invoice",
 
-  // Filter by body text (case-insensitive, partial match)
+  // Filter by body text (plain substring or {{ template }} pattern)
   bodyPattern: "attached",
 };
-
-// Output folder comes from -o/--output-folder (defaults to current working directory)
 ```
 
 Set any filter to `null` to skip it. All specified filters must match for an email to be processed.
+
+#### Filter Template Syntax
+
+Filter patterns support `{{ }}` template syntax for regular expressions and dynamic date values. Plain strings (no `{{ }}`) continue to use the existing case-insensitive substring match.
+
+**Regular expression segments:**
+
+Wrap any regex expression in `{{ }}`. Literal text outside `{{ }}` is automatically escaped.
+
+```javascript
+fromPattern:    "{{ .*@invoices\\.com }}"      // any address at invoices.com
+subjectPattern: "{{ Invoice #[0-9]+ }}"        // "Invoice #" followed by digits
+subjectPattern: "{{ .{3,} }}"                  // three or more characters
+subjectPattern: "Invoice {{ #[0-9]+ }}"        // literal "Invoice " + digit filter
+```
+
+**Date helper placeholders:**
+
+Use `{{ dates.* }}` to inject the current date value as an escaped literal (not a regex). Powered by [@jhauga/getDate](https://github.com/jhauga/getDate).
+
+| Placeholder | Example value |
+|---|---|
+| `{{ dates.year }}`           | `2026` |
+| `{{ dates.lastYear }}`       | `2025` |
+| `{{ dates.nextYear }}`       | `2027` |
+| `{{ dates.month }}`          | `March` |
+| `{{ dates.lastMonth }}`      | `February` |
+| `{{ dates.month.abbr }}`     | `Mar` |
+| `{{ dates.lastMonth.abbr }}` | `Feb` |
+| `{{ dates.day }}`            | `03` |
+| `{{ dates.quarter }}`        | `1` |
+| `{{ dates.lastQuarter }}`    | `4` |
+| `{{ dates.year.short }}`     | `26` |
+
+```javascript
+subjectPattern: "{{ dates.year }}"                         // matches subject containing "2026"
+subjectPattern: "Report - {{ dates.month }}"               // "Report - March"
+subjectPattern: "{{ dates.month }} {{ dates.year }}"       // "March 2026" (exact match)
+subjectPattern: "{{ dates.month }}.*{{ [0-9]{4} }}"        // month then any 4-digit year
+```
+
+**Mixing literals, regex, and date helpers:**
+
+```javascript
+// Match "Monthly Report" followed by the current year anywhere in the subject:
+subjectPattern: "Monthly Report.*{{ dates.year }}"
+
+// Match sender from a domain, case-insensitive:
+fromPattern: "{{ .*@(invoices|billing)\\.company\\.com }}"
+
+// Match body mentioning the current month:
+bodyPattern: "{{ dates.month }}"
+```
 
 ### Creating Custom Tasks
 
@@ -654,7 +705,10 @@ extractEmail/
 │   └── example.mjs            # Example account config
 ├── extractEmailTasks/         # Custom task plugins
 │   ├── stop.js                # Example: find "stop" emails
-│   └── downloadAttachments.js # Download attachments task
+│   ├── downloadAttachments.js # Download attachments task
+│   └── helpers/               # Shared task helpers
+│       ├── dateHelper.mjs     # {{ dates.* }} values via @jhauga/getDate
+│       └── filterHelper.mjs   # {{ regex }} / {{ dates.* }} filter resolution
 └── test/                      # Test utilities
     ├── run-tests.mjs          # Test runner script
     └── mockImap.mjs           # Mock IMAP with sample emails
@@ -665,6 +719,7 @@ extractEmail/
 - [imap-simple](https://www.npmjs.com/package/imap-simple) - IMAP client library
 - [mailparser](https://www.npmjs.com/package/mailparser) - Email parsing library
 - [html-to-text](https://www.npmjs.com/package/html-to-text) - HTML to text conversion for sanitized body output
+- [@jhauga/getdate](https://github.com/jhauga/getDate) - Cross-platform date retrieval for `{{ dates.* }}` filter placeholders
 
 ## License
 
