@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # narrowRequestedData.js - Mapping Configuration Guide
 
 ## Overview
@@ -500,3 +501,4 @@ test('Your test name', () => {
 - Verify syntax: `{% date(<format>) %}`
 - Check format codes are valid (`<mm>`, `<dd>`, etc.)
 - Ensure angle brackets around format codes
+<!-- {% endraw %} -->
