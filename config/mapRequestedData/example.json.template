@@ -1,0 +1,48 @@
+{
+  "description": "Example mapping configuration template for narrowRequestedData helper integration",
+  "mapTo": "exampleScript.bat",
+  "documents": [
+    {
+      "name": "invoice",
+      "folder": "C:\\Documents\\Invoices\\2026",
+      "comment": "Folder for invoice documents - supports regex patterns"
+    },
+    {
+      "name": "receipt",
+      "file": "Receipt-.*\\.pdf",
+      "comment": "File pattern for receipts - regex wildcard example"
+    },
+    {
+      "name": "statement",
+      "folder": "C:\\Documents\\Statements",
+      "file": "Monthly-Statement-.*\\.pdf",
+      "comment": "Both folder and file can be specified"
+    }
+  ],
+  "recipients": [
+    {
+      "name": "%requestor%",
+      "comment": "Special %requestor% syntax - resolves to email sender. Other properties optional when using %requestor%"
+    },
+    {
+      "name": "accounting",
+      "email": "accounting@example.com",
+      "comment": "Department recipient with email"
+    },
+    {
+      "name": "John Smith",
+      "email": "john.smith@example.com",
+      "file": "Reports-for-John-.*\\.pdf",
+      "comment": "Named recipient with email and optional file pattern"
+    }
+  ],
+  "notes": [
+    "The 'mapTo' field is optional - maps this config to a specific script name",
+    "Document 'name' field supports indexOf matching against detected document types",
+    "Document 'folder' and 'file' support regular expressions",
+    "Recipient 'name' can be %requestor%, a department name, or a person's name",
+    "When 'name' is %requestor%, task MAP_REQUEST_DATA (if resolve: true) provides email and file",
+    "File patterns can use custom date syntax: {% date(<format>) %}",
+    "Example: 'Invoice-{% date(<mm>-<dd>-<yyyy>) %}.pdf' matches date-based filenames"
+  ]
+}

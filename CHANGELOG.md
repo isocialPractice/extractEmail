@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0]
+
+### Added
+- Dedicated `docs/` folder with comprehensive documentation:
+  - `quickstart.md` — get up and running in minutes with installation, configuration, and first commands
+  - `options.md` — complete CLI options reference with detailed explanations and examples
+  - `tasks.md` — full task system guide including built-in tasks, custom task creation, and verbose task configuration
+  - `mapping-tasks.md` — mapping configuration guide for document resolution, date syntax, and file pattern matching
+  - `helper-scripts.md` — helper scripts documentation covering dateHelper, filterHelper, and narrowRequestedData
+  - `scripts.md` — external script execution guide with SCRIPT_CONFIG, template variables, and cross-platform examples
+  - `examples.md` — common usage patterns and recipes for extraction, JSON output, attachments, and automation
+
+### Changed
+- Documentation examples updated to use cliche/placeholder data instead of real-world references
+- Improved documentation consistency across all markdown files
+
 ## [2.2.0]
 
 ### Added

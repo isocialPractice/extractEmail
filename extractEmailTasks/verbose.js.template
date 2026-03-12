@@ -37,6 +37,12 @@ const taskDoes = [
  * All specified filters must match for an email to be processed.
  ******************************************************************************/
 const FILTER_CONFIG = {
+  // Mapping configuration for narrowRequestedData helper
+  // Specify filename (e.g., "myReports.json") to resolve to config/mapRequestedData/<filename>
+  // This enables document/recipient resolution and file matching by date range
+  // See config/mapRequestedData/README.md for details
+  mapRequestedData: null,  // Example: "example.json.template"
+
   // Filter by sender email address (case-insensitive, partial match)
   fromPattern: null,
 
@@ -62,11 +68,12 @@ const SCRIPT_CONFIG = {
   scriptPath: "scripts/example.sh",
 
   // Arguments to pass to script (can use template variables)
-  // Available variables: {from}, {subject}, {body}, {date}, {attachmentCount}
+  // Available variables: {from}, {subject}, {body}, {date}, {attachmentCount}, {mapConfig}
+  // {mapConfig} resolves to FILTER_CONFIG.mapRequestedData value (empty string if not set)
   // Note: Don't add quotes here - they will be handled properly by the script runner
   scriptArgs: [
-    "{from}",
-    "{subject}"
+    "{body}",
+    "{mapConfig}"  // Required for narrowRequestedData helper with -m flag
   ],
 
   // Working directory for script execution (null = current directory)
@@ -206,13 +213,17 @@ async function runScriptTask(headersPart, subject, body, fullEmail, outputToTerm
     // Normalize body to single line with \n markers (can be processed by sed/awk to restore newlines)
     const normalizedBody = fullBody.replace(/\r?\n/g, '\\n');
     
+    // Get map config from FILTER_CONFIG (empty string if not set)
+    const mapConfig = FILTER_CONFIG.mapRequestedData || '';
+    
     // Process args - perform variable substitution but don't add quotes yet
     const processedArgs = SCRIPT_CONFIG.scriptArgs.map(arg => {
       let processed = arg
         .replace(/\{from\}/g, from)
         .replace(/\{subject\}/g, subject)
         .replace(/\{body\}/g, normalizedBody)
-        .replace(/\{date\}/g, headersPart.date || '');
+        .replace(/\{date\}/g, headersPart.date || '')
+        .replace(/\{mapConfig\}/g, mapConfig);
       
       // Remove any template quotes that were in the config
       // This allows users to specify quotes in config if they want,
@@ -228,26 +239,28 @@ async function runScriptTask(headersPart, subject, body, fullEmail, outputToTerm
     const { spawnSync } = await import('child_process');
     
     // On Windows, batch files need special handling
-    // We use shell: true to let Windows handle the batch file execution properly
-    // and manually quote arguments to prevent special character interpretation
+    // Use shell: true to properly handle batch file execution
+    // Pass env explicitly to ensure PATH and other environment variables are accessible
     const isWindows = process.platform === 'win32';
     const isBatchFile = scriptPath.toLowerCase().endsWith('.bat') || scriptPath.toLowerCase().endsWith('.cmd');
     
     let command, args, options;
     
     if (isWindows && isBatchFile) {
-      // On Windows with batch files, use shell: true with properly escaped arguments
-      // Escape special cmd.exe characters: < > | & ^ %
+      // On Windows with batch files, use shell for proper execution
+      // Escape quotes in arguments using batch file convention ("")
       const quotedArgs = processedArgs.map(arg => {
-        const escaped = arg.replace(/[<>|&^%]/g, '^$&');
-        return `"${escaped.replace(/"/g, '\\"')}"`;
+        const escaped = arg.replace(/"/g, '""');
+        return `"${escaped}"`;
       });
+      
       command = `"${scriptPath}" ${quotedArgs.join(' ')}`;
       args = [];
       options = {
         cwd: SCRIPT_CONFIG.workingDir || process.cwd(),
         encoding: 'utf8',
-        shell: true
+        shell: true,
+        env: process.env // KEY FIX: Pass environment to enable PATH access in batch file
       };
     } else {
       // For non-Windows or non-batch files, use direct execution
@@ -255,7 +268,8 @@ async function runScriptTask(headersPart, subject, body, fullEmail, outputToTerm
       args = processedArgs;
       options = {
         cwd: SCRIPT_CONFIG.workingDir || process.cwd(),
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: process.env
       };
     }
     

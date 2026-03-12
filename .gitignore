@@ -9,3 +9,4 @@ configEmailExtraction.mjs
 node_modules/
 icon.svg
 _userTestLines.txt
+config/mapRequestedData/*.json

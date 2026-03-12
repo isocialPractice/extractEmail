@@ -1,62 +1,53 @@
 @echo off
-REM Example batch script for verbose task
-REM This is a template - customize for your email processing needs
-
-REM Script receives arguments from SCRIPT_CONFIG in verbose.js
-REM Example: --from=sender@example.com --subject="Email Subject"
+REM Example batch script for email task with narrowRequestedData helper integration
+REM This template demonstrates how to use the mapping configuration system
+REM
+REM Arguments (configured in verbose.js SCRIPT_CONFIG.scriptArgs):
+REM   %1 = Email body text (with \\n markers for newlines)
+REM   %2 = Map config filename (from FILTER_CONFIG.mapRequestedData via {mapConfig})
+REM
+REM Configuration in task file:
+REM   FILTER_CONFIG: { mapRequestedData: "yourMap.json" }
+REM   SCRIPT_CONFIG: { scriptArgs: ["{body}", "{mapConfig}"] }
 
 echo ===================================
-echo Email Processing Script (Batch)
+echo Email Processing Script
 echo ===================================
 
-REM Parse arguments
-:parse_args
-if "%~1"=="" goto end_parse
+REM Get arguments
+set "_emailBody=%~1"
+set "_mapConfig=%~2"
 
-REM Extract --from argument
-echo %1 | findstr /C:"--from=" >nul
-if %errorlevel%==0 (
-  set ARG=%1
-  set FROM=!ARG:--from=!
-  echo From: !FROM!
-  shift
-  goto parse_args
+REM Create temp directory for processing
+set "_tmpDir=%TEMP%\%~n0"
+if NOT EXIST "%_tmpDir%" mkdir "%_tmpDir%" >nul 2>nul
+
+REM Extract message body to temp file
+REM (remove email headers and restore newlines from \\n markers)
+echo "%_emailBody%" | sed "s/\\\\n/\n/g" > "%_tmpDir%\message.txt"
+sed -i "s/\"//g" "%_tmpDir%\message.txt"
+
+echo.
+echo Analyzing email message with narrowRequestedData helper...
+echo Map Config: %_mapConfig%
+echo.
+
+REM Call narrowRequestedData helper with map configuration
+REM This will parse the email, resolve document/recipient, and find matching files
+if "%_mapConfig%"=="" (
+  REM No map config - basic parsing only
+  node "%~dp0..\helpers\narrowRequestedData.js" -f "%_tmpDir%\message.txt"
+) else (
+  REM With map config - full resolution and file matching
+  node "%~dp0..\helpers\narrowRequestedData.js" -m "%_mapConfig%" -f "%_tmpDir%\message.txt"
 )
 
-REM Extract --subject argument
-echo %1 | findstr /C:"--subject=" >nul
-if %errorlevel%==0 (
-  set ARG=%1
-  set SUBJECT=!ARG:--subject=!
-  echo Subject: !SUBJECT!
-  shift
-  goto parse_args
-)
-
-REM Extract --date argument
-echo %1 | findstr /C:"--date=" >nul
-if %errorlevel%==0 (
-  set ARG=%1
-  set DATE=!ARG:--date=!
-  echo Date: !DATE!
-  shift
-  goto parse_args
-)
-
-shift
-goto parse_args
-
-:end_parse
-
+echo.
 echo ===================================
 echo Processing complete!
 echo ===================================
 
-REM Add your custom processing logic here
-REM Examples:
-REM - Parse email data and update a database
-REM - Generate reports based on email content
-REM - Trigger other automated workflows
-REM - Send notifications
+REM Clean up temp directory
+if EXIST "%_tmpDir%" rmdir /S/Q "%_tmpDir%" >nul 2>nul
 
 exit /b 0

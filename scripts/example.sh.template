@@ -1,48 +1,55 @@
 #!/bin/bash
-# Example shell script for verbose task
-# This is a template - customize for your email processing needs
-
-# Script receives arguments from SCRIPT_CONFIG in verbose.js
-# Example: --from=sender@example.com --subject="Email Subject"
+# Example shell script for email task with narrowRequestedData helper integration
+# This template demonstrates how to use the mapping configuration system
+#
+# Arguments (configured in verbose.js SCRIPT_CONFIG.scriptArgs):
+#   $1 = Email body text (with \n markers for newlines)
+#   $2 = Map config filename (from FILTER_CONFIG.mapRequestedData via {mapConfig})
+#
+# Configuration in task file:
+#   FILTER_CONFIG: { mapRequestedData: "yourMap.json" }
+#   SCRIPT_CONFIG: { scriptArgs: ["{body}", "{mapConfig}"] }
 
 echo "==================================="
-echo "Email Processing Script (Bash)"
+echo "Email Processing Script"
 echo "==================================="
 
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --from=*)
-      FROM="${1#*=}"
-      echo "From: $FROM"
-      shift
-      ;;
-    --subject=*)
-      SUBJECT="${1#*=}"
-      echo "Subject: $SUBJECT"
-      shift
-      ;;
-    --date=*)
-      DATE="${1#*=}"
-      echo "Date: $DATE"
-      shift
-      ;;
-    *)
-      echo "Unknown parameter: $1"
-      shift
-      ;;
-  esac
-done
+# Get arguments
+emailBody="$1"
+mapConfig="$2"
 
+# Create temp directory for processing
+tmpDir="/tmp/$(basename "$0" .sh)"
+mkdir -p "$tmpDir"
+
+# Extract message body to temp file
+# (restore newlines from \n markers)
+echo "$emailBody" | sed 's/\\n/\n/g' | sed 's/"//g' > "$tmpDir/message.txt"
+
+echo ""
+echo "Analyzing email message with narrowRequestedData helper..."
+echo "Map Config: $mapConfig"
+echo ""
+
+# Get script directory
+scriptDir="$(cd "$(dirname "$0")" && pwd)"
+
+# Call narrowRequestedData helper with map configuration
+# This will parse the email, resolve document/recipient, and find matching files
+if [ -z "$mapConfig" ]; then
+  # No map config - basic parsing only
+  node "$scriptDir/../helpers/narrowRequestedData.js" -f "$tmpDir/message.txt"
+else
+  # With map config - full resolution and file matching
+  node "$scriptDir/../helpers/narrowRequestedData.js" -m "$mapConfig" -f "$tmpDir/message.txt"
+fi
+
+echo ""
 echo "==================================="
 echo "Processing complete!"
 echo "==================================="
 
-# Add your custom processing logic here
-# Examples:
-# - Parse email data and update a database
-# - Generate reports based on email content
-# - Trigger other automated workflows
-# - Send notifications
+# Clean up temp directory
+rm -rf "$tmpDir"
 
 exit 0

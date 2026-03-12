@@ -2,6 +2,8 @@
 
 A Node.js CLI tool to extract and process emails from IMAP accounts. Supports multiple account configurations and custom task plugins for extensible email processing.
 
+`Ctrl + click` to view [full documentation](https://isocialpractice.github.io/extractEmail/index.html).
+
 ## Features
 
 - Extract email fields (from, to, date, subject, body, attachment) from IMAP accounts
