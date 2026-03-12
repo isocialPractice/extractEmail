@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0]
+
+### Added
+- `extractEmailTasks/verbose.js.template` — flexible multi-task email processing template
+  - Supports single task or array of tasks executed in sequence via `taskDoes` configuration
+  - Five built-in task types:
+    - `download-attachments` — download email attachments to output folder
+    - `check-header-stop` — detect unsubscribe requests with "stop" in subject
+    - `run-script` — execute external batch files, shell scripts, or executables
+    - `log-email` — output email details to console
+    - `custom` — run user-defined custom handler functions
+  - `FILTER_CONFIG` for email filtering by sender, subject, body text, and attachment requirements
+  - `SCRIPT_CONFIG` for external script execution with template variable substitution
+    - Template variables: `{from}`, `{subject}`, `{body}`, `{date}`
+    - Full email body extraction from parsed message (includes forwarded content)
+    - Body normalization with literal `\n` markers for sed/awk post-processing
+    - Project-relative path resolution (scripts work when running from any directory)
+    - Windows batch file support with proper cmd.exe special character escaping (`< > | & ^ %`)
+  - `CUSTOM_HANDLER` function for advanced custom processing logic
+- Example script templates:
+  - `scripts/example.sh.template` — bash script template
+  - `scripts/example.bat.template` — Windows batch file template
+- Comprehensive test suite for verbose task with 6 test cases
+
+### Changed
+- Script execution now uses `spawnSync` with proper argument escaping instead of `execSync`
+- Windows batch files executed with `shell: true` and caret-escaped special characters
+
+### Fixed
+- Script paths resolve relative to project directory instead of current working directory
+- Special characters in email addresses (angle brackets) properly escaped for cmd.exe
+
 ## [2.1.0]
 
 ### Added

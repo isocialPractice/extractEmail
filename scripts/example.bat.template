@@ -1,0 +1,62 @@
+@echo off
+REM Example batch script for verbose task
+REM This is a template - customize for your email processing needs
+
+REM Script receives arguments from SCRIPT_CONFIG in verbose.js
+REM Example: --from=sender@example.com --subject="Email Subject"
+
+echo ===================================
+echo Email Processing Script (Batch)
+echo ===================================
+
+REM Parse arguments
+:parse_args
+if "%~1"=="" goto end_parse
+
+REM Extract --from argument
+echo %1 | findstr /C:"--from=" >nul
+if %errorlevel%==0 (
+  set ARG=%1
+  set FROM=!ARG:--from=!
+  echo From: !FROM!
+  shift
+  goto parse_args
+)
+
+REM Extract --subject argument
+echo %1 | findstr /C:"--subject=" >nul
+if %errorlevel%==0 (
+  set ARG=%1
+  set SUBJECT=!ARG:--subject=!
+  echo Subject: !SUBJECT!
+  shift
+  goto parse_args
+)
+
+REM Extract --date argument
+echo %1 | findstr /C:"--date=" >nul
+if %errorlevel%==0 (
+  set ARG=%1
+  set DATE=!ARG:--date=!
+  echo Date: !DATE!
+  shift
+  goto parse_args
+)
+
+shift
+goto parse_args
+
+:end_parse
+
+echo ===================================
+echo Processing complete!
+echo ===================================
+
+REM Add your custom processing logic here
+REM Examples:
+REM - Parse email data and update a database
+REM - Generate reports based on email content
+REM - Trigger other automated workflows
+REM - Send notifications
+
+exit /b 0

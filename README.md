@@ -46,6 +46,7 @@ cp accounts/example.mjs.template accounts/example.mjs
 # Copy task templates
 cp extractEmailTasks/downloadAttachments.js.template extractEmailTasks/downloadAttachments.js
 cp extractEmailTasks/stop.js.template extractEmailTasks/stop.js
+cp extractEmailTasks/verbose.js.template extractEmailTasks/verbose.js
 ```
 
 Then edit these files with your credentials. Changes to these files won't be tracked by Git.
@@ -525,6 +526,7 @@ Tasks are custom plugins that process emails. They are located in the `extractEm
 |------|-------------|
 | `stop` | Find emails with subject "stop" and output the sender |
 | `downloadAttachments` | Download attachments from emails matching filter criteria (legacy method) |
+| `verbose` | Flexible multi-task template for common email-response actions |
 
 ### Running Tasks
 
@@ -611,7 +613,103 @@ fromPattern: "{{ .*@(invoices|billing)\\.company\\.com }}"
 // Match body mentioning the current month:
 bodyPattern: "{{ dates.month }}"
 ```
+verbose Task
 
+The `verbose` task template provides a flexible, easy-to-configure interface for handling common email-response actions. It can execute multiple tasks in sequence and supports various built-in task types.
+
+Edit `extractEmailTasks/verbose.js` to configure:
+
+```javascript
+// Define single task or array of tasks to execute
+const taskDoes = [
+  "log-email",
+  "download-attachments"
+];
+
+// Optional: Filter which emails to process
+const FILTER_CONFIG = {
+  fromPattern: null,           // Filter by sender
+  subjectPattern: null,        // Filter by subject
+  bodyPattern: null,           // Filter by body text
+  requireAttachments: false,   // Only process emails with attachments
+};
+```
+
+#### Available Task Types
+
+| Task Type | Description |
+|-----------|-------------|
+| `download-attachments` | Download email attachments to output folder |
+| `check-header-stop` | Check if subject contains "stop" (mailing list unsubscribe detection) |
+| `run-script` | Execute a custom shell script or batch file |
+| `log-email` | Log email details to console |
+| `custom` | Run custom handler function defined in `CUSTOM_HANDLER` |
+
+#### Script Configuration (for "run-script" task)
+
+Configure external scripts to run in response to emails:
+
+```javascript
+const SCRIPT_CONFIG = {
+  scriptPath: "scripts/process-email.sh",  // Path to script
+  scriptArgs: [                            // Arguments with template variables
+    "{from}",                              // Don't add quotes - handled automatically
+    "{subject}"
+  ],
+  workingDir: null,                        // Working directory (null = current)
+  continueOnError: false,                  // Continue if script fails?
+};
+```
+
+**Template variables for script arguments:**
+- `{from}` - Email sender (full "Display Name <email@domain.com>" format)
+- `{subject}` - Email subject
+- `{date}` - Email date
+- `{attachmentCount}` - Number of attachments
+
+**Important:** Don't wrap template variables in quotes in `scriptArgs`. The script runner uses `spawnSync` which properly handles arguments with spaces and special characters automatically.
+
+**Example use cases:**
+
+```javascript
+// Download attachments from emails with attachments
+const taskDoes = "download-attachments";
+const FILTER_CONFIG = { requireAttachments: true };
+
+// Run script for emails from specific sender
+const taskDoes = "run-script";
+const FILTER_CONFIG = { fromPattern: "reports@company.com" };
+
+// Multi-task: Log email, check for "stop", then download attachments
+const taskDoes = [
+  "log-email",
+  "check-header-stop",
+  "download-attachments"
+];
+
+// Custom processing with your own logic
+const taskDoes = "custom";
+const CUSTOM_HANDLER = (headersPart, subject, body, fullEmail, outputToTerminal) => {
+  // Your custom logic here
+  outputToTerminal("Custom", "Processing email", 0);
+  return true; // Return false to stop processing further tasks
+};
+```
+
+**Running the verbose task:**
+
+```bash
+# Run verbose task on last 100 emails
+extractEmail verbose
+
+# Run verbose task on last 50 emails with work account
+extractEmail --config=work verbose 50
+
+# Run verbose task with output folder
+extractEmail verbose -o ./downloads 25
+```
+
+### 
 ### Creating Custom Tasks
 
 1. Create a new file in `extractEmailTasks/` (e.g., `myTask.js`)
@@ -706,6 +804,7 @@ extractEmail/
 ├── extractEmailTasks/         # Custom task plugins
 │   ├── stop.js                # Example: find "stop" emails
 │   ├── downloadAttachments.js # Download attachments task
+│   ├── verbose.js             # Flexible multi-task template
 │   └── helpers/               # Shared task helpers
 │       ├── dateHelper.mjs     # {{ dates.* }} values via @jhauga/getDate
 │       └── filterHelper.mjs   # {{ regex }} / {{ dates.* }} filter resolution

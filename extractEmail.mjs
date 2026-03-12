@@ -248,7 +248,8 @@ const optSet   = ["from", "to", "date", "subject", "attachment", "body"];
 // Task set object for specific functions, and help output.
 const taskSets = {
  "stop": "Get the number from STOP request, and remove from messaging.",
- "downloadAttachments": "Download attachments from emails matching filter criteria."
+ "downloadAttachments": "Download attachments from emails matching filter criteria.",
+ "verbose": "Flexible multi-task template for common email-response actions (log, download, run scripts)."
 };
 
 // Help message.

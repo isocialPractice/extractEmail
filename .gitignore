@@ -3,6 +3,8 @@ accounts/*.mjs
 !accounts/*.template
 extractEmailTasks/*.js
 !extractEmailTasks/*.template
+scripts/*
+!scripts/*.template
 configEmailExtraction.mjs
 node_modules/
 icon.svg

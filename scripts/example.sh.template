@@ -1,0 +1,48 @@
+#!/bin/bash
+# Example shell script for verbose task
+# This is a template - customize for your email processing needs
+
+# Script receives arguments from SCRIPT_CONFIG in verbose.js
+# Example: --from=sender@example.com --subject="Email Subject"
+
+echo "==================================="
+echo "Email Processing Script (Bash)"
+echo "==================================="
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --from=*)
+      FROM="${1#*=}"
+      echo "From: $FROM"
+      shift
+      ;;
+    --subject=*)
+      SUBJECT="${1#*=}"
+      echo "Subject: $SUBJECT"
+      shift
+      ;;
+    --date=*)
+      DATE="${1#*=}"
+      echo "Date: $DATE"
+      shift
+      ;;
+    *)
+      echo "Unknown parameter: $1"
+      shift
+      ;;
+  esac
+done
+
+echo "==================================="
+echo "Processing complete!"
+echo "==================================="
+
+# Add your custom processing logic here
+# Examples:
+# - Parse email data and update a database
+# - Generate reports based on email content
+# - Trigger other automated workflows
+# - Send notifications
+
+exit 0

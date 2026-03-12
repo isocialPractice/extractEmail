@@ -29,6 +29,23 @@ function teardownStopTask() {
   try { fs.unlinkSync(tempPath); } catch (_) { /* already removed */ }
 }
 
+/**
+ * Create temp verbose.js from template so verbose task tests can run.
+ */
+function setupVerboseTask() {
+  const templatePath = path.join(tasksDir, 'verbose.js.template');
+  const tempPath = path.join(tasksDir, 'verbose.js');
+  fs.copyFileSync(templatePath, tempPath);
+}
+
+/**
+ * Remove temp verbose.js after tests.
+ */
+function teardownVerboseTask() {
+  const tempPath = path.join(tasksDir, 'verbose.js');
+  try { fs.unlinkSync(tempPath); } catch (_) { /* already removed */ }
+}
+
 // Test results tracking
 let passed = 0;
 let failed = 0;
@@ -280,6 +297,37 @@ async function testStopTask() {
   assertContains(result.stdout, 'user@messaging.com', 'Stop task finds STOP email');
 }
 
+async function testVerboseTask() {
+  console.log('\n[Test Suite] Verbose Task\n');
+
+  // Test: Run verbose task with default configuration (log-email + download-attachments)
+  const result = await runCommand(['--task=verbose']);
+  assertContains(result.stdout, '[TEST MODE]', 'Verbose task runs in test mode');
+  assertContains(result.stdout, 'Processing Email', 'Verbose task processes emails');
+  
+  // Test: Verbose task shows log output
+  assertContains(result.stdout, 'From', 'Verbose task logs From field');
+  assertContains(result.stdout, 'Subject', 'Verbose task logs Subject field');
+
+  // Test: Verbose task attempts to download attachments or reports no attachments
+  // (in test mode, mock IMAP may not support full parsing, so either message is valid)
+  const hasDownloadOutput = result.stdout.includes('Downloaded') || 
+                           result.stdout.includes('No attachments') ||
+                           result.stdout.includes('Download');
+  if (hasDownloadOutput) {
+    console.log('  ✓ Verbose task processes download-attachments task');
+    passed++;
+  } else {
+    console.log('  ✗ Verbose task processes download-attachments task');
+    console.log(`    Expected "Downloaded", "No attachments", or "Download" in output`);
+    failed++;
+  }
+  
+  // Test: Help shows verbose task
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, 'verbose', 'Help lists verbose task');
+}
+
 async function testHelpOutput() {
   console.log('\n[Test Suite] Help Output\n');
 
@@ -434,12 +482,14 @@ async function main() {
   console.log('========================================');
 
   setupStopTask();
+  setupVerboseTask();
 
   try {
     await testFilterHelper();
     await testHelpOutput();
     await testBasicExtraction();
     await testStopTask();
+    await testVerboseTask();
     await testUnknownOption();
     await testTaskOption();
     await testJsonModes();
@@ -448,6 +498,7 @@ async function main() {
     process.exit(1);
   } finally {
     teardownStopTask();
+    teardownVerboseTask();
   }
 
   console.log('\n========================================');

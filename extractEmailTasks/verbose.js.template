@@ -1,0 +1,398 @@
+// extractEmailTasks/verbose
+// Verbose task template with flexible configuration for common email-response actions.
+// This template provides an easy-to-configure interface for handling various email tasks.
+
+import fs from 'fs';
+import path from 'path';
+import { simpleParser } from 'mailparser';
+
+/*******************************************************************************
+ * TASK CONFIGURATION
+ *
+ * Configure taskDoes to define what actions this task should perform.
+ * Can be a single task string or an array of tasks to execute in sequence.
+ *
+ * Available task types:
+ *   - "download-attachments"   - Download email attachments to output folder
+ *   - "check-header-stop"      - Check if subject contains "stop" (mailing list unsubscribe)
+ *   - "run-script"             - Execute a custom script (configure SCRIPT_CONFIG below)
+ *   - "log-email"              - Log email details to console
+ *   - "custom"                 - Run custom handler function (define CUSTOM_HANDLER below)
+ ******************************************************************************/
+
+// Single task example:
+// const taskDoes = "download-attachments";
+
+// Multiple tasks example (executes in order):
+const taskDoes = [
+  "log-email",
+  "download-attachments"
+];
+
+/*******************************************************************************
+ * FILTER CONFIGURATION
+ *
+ * Set filters to process only specific emails.
+ * Set any filter to null to skip that filter.
+ * All specified filters must match for an email to be processed.
+ ******************************************************************************/
+const FILTER_CONFIG = {
+  // Filter by sender email address (case-insensitive, partial match)
+  fromPattern: null,
+
+  // Filter by subject line (case-insensitive, partial match)
+  subjectPattern: null,
+
+  // Filter by body text (case-insensitive, partial match)
+  bodyPattern: null,
+
+  // Require email to have attachments
+  requireAttachments: false,
+};
+
+/*******************************************************************************
+ * SCRIPT CONFIGURATION (for "run-script" task)
+ *
+ * Configure scripts to run when taskDoes includes "run-script".
+ * Scripts can be shell scripts (.sh), batch files (.bat), or executables.
+ ******************************************************************************/
+const SCRIPT_CONFIG = {
+  // Script to execute (relative to project root or absolute path)
+  // Example: "scripts/process-email.sh" or "scripts/process-email.bat"
+  scriptPath: "scripts/example.sh",
+
+  // Arguments to pass to script (can use template variables)
+  // Available variables: {from}, {subject}, {body}, {date}, {attachmentCount}
+  // Note: Don't add quotes here - they will be handled properly by the script runner
+  scriptArgs: [
+    "{from}",
+    "{subject}"
+  ],
+
+  // Working directory for script execution (null = current directory)
+  workingDir: null,
+
+  // Continue processing other tasks if script fails?
+  continueOnError: false,
+};
+
+/*******************************************************************************
+ * CUSTOM HANDLER (for "custom" task type)
+ *
+ * Define your own custom processing logic here.
+ ******************************************************************************/
+const CUSTOM_HANDLER = (headersPart, subject, body, fullEmail, outputToTerminal) => {
+  // Example: Log specific header information
+  outputToTerminal("Custom Task", `Processing email from ${headersPart.from}`);
+  
+  // Add your custom logic here
+  // You have access to:
+  //   - headersPart: Email headers (from, to, date, etc.)
+  //   - subject: Email subject line
+  //   - body: Email body text
+  //   - fullEmail: Complete parsed email object
+  //   - outputToTerminal: Function to output messages (name, value, indent)
+  
+  return true; // Return false to stop processing further tasks
+};
+
+/*******************************************************************************
+ * END OF CONFIGURATION
+ ******************************************************************************/
+
+/**
+ * Check if email matches all specified filter criteria.
+ */
+function matchesFilters(headersPart, subject, body, hasAttachments) {
+  const from = Array.isArray(headersPart.from)
+    ? headersPart.from.join(' ')
+    : (headersPart.from || '');
+
+  // Check fromPattern
+  if (FILTER_CONFIG.fromPattern) {
+    if (!from.toLowerCase().includes(FILTER_CONFIG.fromPattern.toLowerCase())) {
+      return false;
+    }
+  }
+
+  // Check subjectPattern
+  if (FILTER_CONFIG.subjectPattern) {
+    if (!subject.toLowerCase().includes(FILTER_CONFIG.subjectPattern.toLowerCase())) {
+      return false;
+    }
+  }
+
+  // Check bodyPattern
+  if (FILTER_CONFIG.bodyPattern) {
+    if (!body.toLowerCase().includes(FILTER_CONFIG.bodyPattern.toLowerCase())) {
+      return false;
+    }
+  }
+
+  // Check attachment requirement
+  if (FILTER_CONFIG.requireAttachments && !hasAttachments) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Task: Download attachments from email
+ */
+async function downloadAttachmentsTask(fullEmail, outputToTerminal, outputFolder) {
+  if (!fullEmail.attachments || fullEmail.attachments.length === 0) {
+    outputToTerminal("Download", "No attachments found", 1);
+    return true;
+  }
+
+  const targetFolder = outputFolder || process.cwd();
+  
+  if (!fs.existsSync(targetFolder)) {
+    fs.mkdirSync(targetFolder, { recursive: true });
+  }
+
+  for (const attachment of fullEmail.attachments) {
+    const filename = attachment.filename || `attachment_${Date.now()}`;
+    const filepath = path.join(targetFolder, filename);
+    
+    try {
+      fs.writeFileSync(filepath, attachment.content);
+      outputToTerminal("Downloaded", filepath, 1);
+    } catch (err) {
+      outputToTerminal("Error", `Failed to save ${filename}: ${err.message}`, 1);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Task: Check if subject contains "stop" (mailing list unsubscribe)
+ */
+function checkHeaderStopTask(subject, outputToTerminal) {
+  if (subject.toLowerCase().includes("stop")) {
+    outputToTerminal("Stop Detected", "Email subject contains 'stop' - potential unsubscribe request", 1);
+    return true;
+  }
+  return true;
+}
+
+/**
+ * Task: Run external script
+ */
+async function runScriptTask(headersPart, subject, body, fullEmail, outputToTerminal, projectDir) {
+  try {
+    let scriptPath = SCRIPT_CONFIG.scriptPath;
+    
+    // Convert to absolute path if relative (resolve relative to project directory, not cwd)
+    if (!path.isAbsolute(scriptPath)) {
+      scriptPath = projectDir ? path.resolve(projectDir, scriptPath) : path.resolve(scriptPath);
+    }
+    
+    if (!fs.existsSync(scriptPath)) {
+      outputToTerminal("Script Error", `Script not found: ${scriptPath}`, 1);
+      return SCRIPT_CONFIG.continueOnError;
+    }
+
+    // Prepare arguments with variable substitution
+    const from = Array.isArray(headersPart.from) 
+      ? headersPart.from.join(' ') 
+      : (headersPart.from || '');
+    
+    // Extract full body from parsed email (fullEmail.text has complete content)
+    const fullBody = (fullEmail && fullEmail.text) ? fullEmail.text : body;
+    
+    // Normalize body to single line with \n markers (can be processed by sed/awk to restore newlines)
+    const normalizedBody = fullBody.replace(/\r?\n/g, '\\n');
+    
+    // Process args - perform variable substitution but don't add quotes yet
+    const processedArgs = SCRIPT_CONFIG.scriptArgs.map(arg => {
+      let processed = arg
+        .replace(/\{from\}/g, from)
+        .replace(/\{subject\}/g, subject)
+        .replace(/\{body\}/g, normalizedBody)
+        .replace(/\{date\}/g, headersPart.date || '');
+      
+      // Remove any template quotes that were in the config
+      // This allows users to specify quotes in config if they want,
+      // but we'll handle proper escaping here
+      if (processed.startsWith('"') && processed.endsWith('"')) {
+        processed = processed.slice(1, -1);
+      }
+      
+      return processed;
+    });
+
+    // Use spawn instead of execSync for better argument handling
+    const { spawnSync } = await import('child_process');
+    
+    // On Windows, batch files need special handling
+    // We use shell: true to let Windows handle the batch file execution properly
+    // and manually quote arguments to prevent special character interpretation
+    const isWindows = process.platform === 'win32';
+    const isBatchFile = scriptPath.toLowerCase().endsWith('.bat') || scriptPath.toLowerCase().endsWith('.cmd');
+    
+    let command, args, options;
+    
+    if (isWindows && isBatchFile) {
+      // On Windows with batch files, use shell: true with properly escaped arguments
+      // Escape special cmd.exe characters: < > | & ^ %
+      const quotedArgs = processedArgs.map(arg => {
+        const escaped = arg.replace(/[<>|&^%]/g, '^$&');
+        return `"${escaped.replace(/"/g, '\\"')}"`;
+      });
+      command = `"${scriptPath}" ${quotedArgs.join(' ')}`;
+      args = [];
+      options = {
+        cwd: SCRIPT_CONFIG.workingDir || process.cwd(),
+        encoding: 'utf8',
+        shell: true
+      };
+    } else {
+      // For non-Windows or non-batch files, use direct execution
+      command = scriptPath;
+      args = processedArgs;
+      options = {
+        cwd: SCRIPT_CONFIG.workingDir || process.cwd(),
+        encoding: 'utf8'
+      };
+    }
+    
+    const result = spawnSync(command, args, options);
+    
+    if (result.error) {
+      throw result.error;
+    }
+    
+    if (result.status !== 0) {
+      const errorMsg = result.stderr || result.stdout || `Script exited with code ${result.status}`;
+      throw new Error(errorMsg);
+    }
+    
+    const output = result.stdout || result.stderr || "Script executed successfully";
+    outputToTerminal("Script Output", output.toString().trim(), 1);
+    return true;
+  } catch (err) {
+    outputToTerminal("Script Error", err.message, 1);
+    return SCRIPT_CONFIG.continueOnError;
+  }
+}
+
+/**
+ * Task: Log email details to console
+ */
+function logEmailTask(headersPart, subject, body, outputToTerminal) {
+  const from = Array.isArray(headersPart.from)
+    ? headersPart.from.join(' ')
+    : (headersPart.from || '');
+  
+  outputToTerminal("From", from, 1);
+  outputToTerminal("Subject", subject, 1);
+  outputToTerminal("Date", headersPart.date || 'Unknown', 1);
+  outputToTerminal("Body Preview", body.substring(0, 100) + '...', 1);
+  
+  return true;
+}
+
+/**
+ * Execute a single task by name
+ */
+async function executeTask(taskName, headersPart, subject, body, fullEmail, outputToTerminal, outputFolder, projectDir) {
+  switch (taskName) {
+    case "download-attachments":
+      return await downloadAttachmentsTask(fullEmail, outputToTerminal, outputFolder);
+    
+    case "check-header-stop":
+      return checkHeaderStopTask(subject, outputToTerminal);
+    
+    case "run-script":
+      return await runScriptTask(headersPart, subject, body, fullEmail, outputToTerminal, projectDir);
+    
+    case "log-email":
+      return logEmailTask(headersPart, subject, body, outputToTerminal);
+    
+    case "custom":
+      return CUSTOM_HANDLER(headersPart, subject, body, fullEmail, outputToTerminal);
+    
+    default:
+      outputToTerminal("Error", `Unknown task: ${taskName}`, 1);
+      return false;
+  }
+}
+
+/**
+ * Main task export function
+ * Called by extractEmail for each email that needs processing.
+ *
+ * @param {object} headersPart - Email headers (from, to, date, etc.)
+ * @param {string} subject - Email subject line
+ * @param {string} body - Email body text
+ * @param {function} setVal - Function to set output values (name, headersPart, subject, body)
+ * @param {function} outputToTerminal - Function to output messages (name, value, indent)
+ * @param {object} context - Context object with connection, msg, __dirname, outputOptions, etc.
+ */
+export default async function verboseTask(headersPart, subject, body, setVal, outputToTerminal, context) {
+  const { connection, msg, outputOptions } = context;
+  
+  // Parse full email for attachment and advanced processing
+  const uid = msg.attributes.uid;
+  let fullEmail = null;
+  
+  try {
+    // Fetch raw message for parsing
+    const refetch = await connection.search([['UID', uid]], { bodies: [''], struct: false });
+    if (refetch && refetch.length > 0) {
+      const rawPart = refetch[0].parts.find(part => part.which === '');
+      if (rawPart && rawPart.body) {
+        const rawText = typeof rawPart.body === 'string' 
+          ? rawPart.body 
+          : Buffer.from(rawPart.body).toString('utf8');
+        fullEmail = await simpleParser(rawText);
+      }
+    }
+  } catch (err) {
+    console.error('Error parsing email:', err.message);
+    // Continue without fullEmail
+  }
+  
+  const hasAttachments = fullEmail && fullEmail.attachments && fullEmail.attachments.length > 0;
+
+  // Apply filters
+  if (!matchesFilters(headersPart, subject, body, hasAttachments)) {
+    return; // Skip this email
+  }
+
+  // Output email identifier
+  const from = Array.isArray(headersPart.from)
+    ? headersPart.from.join(' ')
+    : (headersPart.from || '');
+  outputToTerminal("Processing Email", `From: ${from}, Subject: ${subject}`, 0);
+
+  // Execute task(s)
+  const tasks = Array.isArray(taskDoes) ? taskDoes : [taskDoes];
+  
+  // Get output folder from options
+  const outputFolder = outputOptions && outputOptions.folder ? outputOptions.folder : process.cwd();
+  
+  // Get project directory for resolving relative script paths
+  const projectDir = context.__dirname;
+  
+  for (const taskName of tasks) {
+    const shouldContinue = await executeTask(
+      taskName, 
+      headersPart, 
+      subject, 
+      body, 
+      fullEmail, 
+      outputToTerminal, 
+      outputFolder,
+      projectDir
+    );
+    
+    if (!shouldContinue) {
+      outputToTerminal("Stopped", "Task returned false, stopping further processing", 1);
+      break;
+    }
+  }
+}
