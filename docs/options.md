@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # CLI Options Reference
 
 Complete reference for all extractEmail command-line options.
@@ -480,3 +481,4 @@ node extractEmail.mjs --test stop
 ```
 
 Uses sample emails from `test/mockImap.mjs`.
+<!-- {% endraw %} -->

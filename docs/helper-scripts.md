@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Helper Scripts Guide
 
 Helper scripts provide shared functionality for tasks and the main application.
@@ -315,3 +316,4 @@ export default async function processRequest(headersPart, subject, body) {
   }
 }
 ```
+<!-- {% endraw %} -->

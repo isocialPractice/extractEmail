@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Task System Guide
 
 Tasks are custom plugins that process emails. They provide a powerful way to automate email-based workflows.
@@ -500,3 +501,4 @@ export default async function archiveOld(
 5. **Use context sparingly** - The context object is for advanced use
 6. **Test with --test flag** - Validate before running on real emails
 7. **Document your tasks** - Add to taskSets for help output
+<!-- {% endraw %} -->

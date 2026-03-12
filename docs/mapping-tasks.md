@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Mapping Tasks Guide
 
 Mapping configuration enables intelligent document resolution, recipient management, and file pattern matching based on email content.
@@ -544,3 +545,4 @@ console.log(result2.matchedFiles);
 - Verify syntax: `{% date(<format>) %}`
 - Check format codes are valid
 - Ensure no spaces in format string
+<!-- {% endraw %} -->

@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Examples
 
 Common usage patterns and recipes for extractEmail.
@@ -500,3 +501,4 @@ extractEmail from 100
 extractEmail -a subject="Specific" -n 1
 # vs scanning all emails
 ```
+<!-- {% endraw %} -->

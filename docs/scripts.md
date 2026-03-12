@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Scripts Guide
 
 The scripts system allows tasks to execute external scripts (batch files, shell scripts, or executables) with email data passed as arguments.
@@ -403,3 +404,4 @@ const CUSTOM_HANDLER = (headersPart, subject, body) => {
 - Check for syntax errors in script
 - Verify all required tools (sed, node) are available
 - Run script manually with test arguments
+<!-- {% endraw %} -->

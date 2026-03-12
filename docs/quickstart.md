@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Quickstart Guide
 
 Get up and running with extractEmail in minutes.
@@ -161,3 +162,4 @@ node extractEmail.mjs --test stop
 # Show help message
 extractEmail --help
 ```
+<!-- {% endraw %} -->
