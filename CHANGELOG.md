@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.3.0]
 
 ### Added
+
 - Dedicated `docs/` folder with comprehensive documentation:
   - `quickstart.md` — get up and running in minutes with installation, configuration, and first commands
   - `options.md` — complete CLI options reference with detailed explanations and examples
@@ -16,10 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `helper-scripts.md` — helper scripts documentation covering dateHelper, filterHelper, and narrowRequestedData
   - `scripts.md` — external script execution guide with SCRIPT_CONFIG, template variables, and cross-platform examples
   - `examples.md` — common usage patterns and recipes for extraction, JSON output, attachments, and automation
+- `helpers/narrowRequestedData.js` — natural language email parser with mapping configuration support
+  - CLI parameter support: `-f/--file` for file input, `-m/--map` for mapping config, `--demo-map` for demo mode
+  - Recipient pattern matching: "send me", "send [Name]", "send [department]", "email to", "forward to", etc.
+  - Document type detection from natural language (invoice, report, statement, etc.)
+  - Date range extraction from phrases like "last 3 months", "past two weeks", "from January to March"
+  - JSON mapping configuration system for document-to-file resolution
+  - Custom date syntax parser: `{% date(<format>) %}` with codes `<mm>`, `<dd>`, `<yy>`, `<yyyy>`, `<MONTH>`, etc.
+  - File scanning with date range filtering and pattern matching
+  - `%requestor%` special syntax for dynamic sender-based file matching
+- `config/mapRequestedData/` directory for mapping configuration files
+  - `example.json.template` — generic mapping template demonstrating document type to folder/file resolution
+  - `README.md` — comprehensive 3-step integration guide for mapping system
+- `{mapConfig}` template variable support in `extractEmailTasks/verbose.js.template` for passing mapping config to scripts
+- Test suite for mapping functionality in `test/test-mapping.mjs`
 
 ### Changed
-- Documentation examples updated to use cliche/placeholder data instead of real-world references
+
 - Improved documentation consistency across all markdown files
+- `helpers/narrowRequestedData.js` converted from CommonJS to ES module syntax
+- Script templates (`example.bat.template`, `example.sh.template`) updated with `-m` flag usage examples
 
 ## [2.2.0]
 

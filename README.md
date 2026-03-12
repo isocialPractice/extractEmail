@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # extractEmail ![icon.svg](icon.png)
 
 A Node.js CLI tool to extract and process emails from IMAP accounts. Supports multiple account configurations and custom task plugins for extensible email processing.
@@ -825,3 +826,4 @@ extractEmail/
 ## License
 
 ISC
+<!-- {% endraw %} -->
