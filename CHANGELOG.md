@@ -1,3 +1,4 @@
+<!-- {% raw %} -->
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -151,3 +152,4 @@ Releasing version `2.0.0` as new options and improved handling of output merit a
 - Output to file or folder with `-o, --output-folder` flag
 - Account selection with `--config` flag
 - Task execution with `--task` flag
+<!-- {% endraw %} -->
