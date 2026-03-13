@@ -1,12 +1,11 @@
 # extractEmail TODO
 
-## Current Focus
+## Constant TODO Item(s)
 
-- [ ] port to TypeScript
+- [ ] update `package.json` version from `X.Y.Z` to match corresponding major release, minor release, or minor change.
 
 ## Minor Updates
 
-- [x] update `package.json` version from `1.0.0` to match current `2.1.0`
 - [ ] add `--version` / `-v` flag to print current version and exit
 - [ ] add `--mailbox <name>` flag to select a mailbox other than `INBOX`
 - [ ] add `--since <date>` flag for filtering emails on or after a date
@@ -29,6 +28,10 @@
 - [ ] add SMTP sending capability (reply, forward, compose new)
 - [ ] add multi-folder support to search across multiple mailboxes in one run
 - [ ] build an interactive TUI (terminal UI) email browser mode
+
+### Major Updates Under Consideration
+
+- [ ] Port to TypeScript
 
 ## Improve Upon Current Features
 

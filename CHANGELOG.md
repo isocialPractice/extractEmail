@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0]
+
+### Added
+
+- `--filter` option to find and display emails matching filter criteria without downloading
+  - Outputs matching email info (number, from, subject)
+  - Uses same filter arguments as `-a` (`from=`, `subject=`, `body=`, `attachment=`)
+- `--filter:bool` option for conditional logic in scripts
+  - Outputs `true` and stops immediately when a match is found
+  - Outputs `false` after checking all emails (default: 100) if no match
+  - Useful for automation triggers and existence checks
+- `body=` filter argument for filtering by email body/message content
+  - Works with `-a`, `--filter`, and `--filter:bool`
+  - Partial match, case-insensitive
+- Test suites for `--filter`, `--filter:bool`, and `body=` filter functionality
+
 ## [2.3.0]
 
 ### Added

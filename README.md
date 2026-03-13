@@ -104,7 +104,7 @@ Account filenames must not contain spaces or special characters (`/ \ : * ? " < 
 ## Usage
 
 ```bash
-extractEmail [--config=<account>] [--task=<task>] [-o <path>] [-n <num>] [-f] [--html] [--json[:html|table]] [-a] [option|task] [count]
+extractEmail [--config=<account>] [--task=<task>] [-o <path>] [-n <num>] [-f] [--html] [--json[:html|table]] [-a] [--filter] [option|task] [count]
 ```
 
 ### Account Selection
@@ -133,16 +133,19 @@ If `--task` is provided, it looks for the task in the `tasksFolder` configured i
 | `--json` | Output results in JSON format instead of text. Useful for programmatic parsing and data integration. Default count reduces to 20. |
 | `--json:html` | Output JSON with hierarchical structure based on HTML headings (h1-h6). Content is nested under heading names with 'tag-data' properties. Default count reduces to 25. |
 | `--json:table` | Output JSON with columnar format from HTML tables. Extracts ONLY table data, removes all other content. Table headers (th) or first row (td) become property names, values are arrays of column data. Default count reduces to 25. |
-| `-a, --attachment-download` | Download attachment(s) from email(s). Requires one of: `-n <num>`, `from="email@site.com"`, `subject="pattern"`, or `attachment=true`. |
+| `-a, --attachment-download` | Download attachment(s) from email(s). Requires one of: `-n <num>`, `from="email@site.com"`, `subject="pattern"`, `body="text"`, or `attachment=true`. |
+| `--filter` | Find and display emails matching filter criteria (same filters as `-a`, but without downloading attachments). |
+| `--filter:bool` | Check if any email matches filter criteria, output `true` or `false`. Stops immediately on first match. Default checks 100 emails. |
 
 ### Filter Arguments
 
-Used with `-a, --attachment-download` to filter emails:
+Used with `-a, --attachment-download`, `--filter`, or `--filter:bool` to filter emails:
 
 | Filter | Description |
 |--------|-------------|
 | `from="email@domain.com"` | Filter by sender email address (partial match, case-insensitive) |
 | `subject="pattern"` | Filter by subject text (partial match, case-insensitive) |
+| `body="text"` | Filter by email body/message content (partial match, case-insensitive) |
 | `attachment=true` | Find first email with attachment |
 
 ### Extraction Options

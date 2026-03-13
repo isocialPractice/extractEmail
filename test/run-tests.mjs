@@ -472,6 +472,101 @@ async function testJsonModes() {
   assertContains(helpResult.stdout, '--json:table', 'Help documents --json:table option');
 }
 
+async function testFilterMode() {
+  console.log('\n[Test Suite] --filter Mode\n');
+
+  // Test: --filter with from= finds matching emails
+  const fromResult = await runCommand(['--filter', 'from=example.com']);
+  assertContains(fromResult.stdout, 'Found matching email', '--filter from= finds matching emails');
+  assertContains(fromResult.stdout, 'sender1@example.com', '--filter from= shows matching sender');
+
+  // Test: --filter with subject= finds matching emails
+  const subjectResult = await runCommand(['--filter', 'subject=Invoice']);
+  assertContains(subjectResult.stdout, 'Found matching email', '--filter subject= finds matching emails');
+  assertContains(subjectResult.stdout, 'Invoice #12345', '--filter subject= shows matching subject');
+
+  // Test: --filter with no matches reports appropriately
+  const noMatchResult = await runCommand(['--filter', 'from=nonexistent@nowhere.com']);
+  assertContains(noMatchResult.stdout, 'No emails found matching', '--filter reports no matches when none found');
+
+  // Test: --filter is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--filter', 'Help documents --filter option');
+}
+
+async function testBodyFilter() {
+  console.log('\n[Test Suite] body= Filter Argument\n');
+
+  // Test: body= filter finds emails by body content (with --filter)
+  const bodyFilterResult = await runCommand(['--filter', 'body=invoice']);
+  assertContains(bodyFilterResult.stdout, 'Found matching email', 'body= filter finds emails containing text');
+  assertContains(bodyFilterResult.stdout, 'Invoice #12345', 'body= filter shows correct email subject');
+
+  // Test: body= filter for "resolved" (support email)
+  const resolvedResult = await runCommand(['--filter', 'body=resolved']);
+  assertContains(resolvedResult.stdout, 'Found matching email', 'body= filter finds "resolved" text');
+  assertContains(resolvedResult.stdout, 'support ticket', 'body= filter shows support ticket email');
+
+  // Test: body= filter for "signing up" (welcome email)
+  const signupResult = await runCommand(['--filter', 'body=signing up']);
+  assertContains(signupResult.stdout, 'Found matching email', 'body= filter finds "signing up" text');
+  assertContains(signupResult.stdout, 'Welcome', 'body= filter shows Welcome email');
+
+  // Test: body= filter combined with from= filter
+  const combinedResult = await runCommand(['--filter', 'body=attached', 'from=invoices.com']);
+  assertContains(combinedResult.stdout, 'Found matching email', 'Combined body= and from= filters work');
+  assertContains(combinedResult.stdout, 'Invoice #12345', 'Combined filters find correct email');
+
+  // Test: body= filter with non-matching text
+  const noMatchResult = await runCommand(['--filter', 'body=xyznonexistenttext123']);
+  assertContains(noMatchResult.stdout, 'No emails found matching', 'body= filter reports no match for non-existent text');
+
+  // Test: body= is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, 'body=', 'Help documents body= filter argument');
+}
+
+async function testFilterBoolMode() {
+  console.log('\n[Test Suite] --filter:bool Mode\n');
+
+  // Test: --filter:bool outputs "true" when match is found
+  const trueResult = await runCommand(['--filter:bool', 'from=example.com']);
+  // Should output "true" (after test mode indicator)
+  assertContains(trueResult.stdout, 'true', '--filter:bool outputs "true" when match found');
+  // Should NOT output "Found matching email" details
+  assertNotContains(trueResult.stdout, 'Found matching email', '--filter:bool does not show email details');
+
+  // Test: --filter:bool with subject match outputs "true"
+  const subjectTrueResult = await runCommand(['--filter:bool', 'subject=Invoice']);
+  assertContains(subjectTrueResult.stdout, 'true', '--filter:bool subject= outputs "true" on match');
+
+  // Test: --filter:bool with body match outputs "true"
+  const bodyTrueResult = await runCommand(['--filter:bool', 'body=invoice']);
+  assertContains(bodyTrueResult.stdout, 'true', '--filter:bool body= outputs "true" on match');
+
+  // Test: --filter:bool outputs "false" when no match is found
+  const falseResult = await runCommand(['--filter:bool', 'from=nonexistent@fakemail.xyz']);
+  assertContains(falseResult.stdout, 'false', '--filter:bool outputs "false" when no match');
+  assertNotContains(falseResult.stdout, 'No emails found matching', '--filter:bool does not show "No emails found" message');
+
+  // Test: --filter:bool with count parameter
+  const countResult = await runCommand(['--filter:bool', 'from=example.com', '2']);
+  assertContains(countResult.stdout, 'true', '--filter:bool with count parameter works');
+
+  // Test: --filter:bool combined filters
+  const combinedResult = await runCommand(['--filter:bool', 'body=attached', 'from=invoices.com']);
+  assertContains(combinedResult.stdout, 'true', '--filter:bool with combined filters finds match');
+
+  // Test: --filter:bool combined filters no match
+  const combinedNoMatchResult = await runCommand(['--filter:bool', 'body=foobar', 'from=nonexistent@']);
+  assertContains(combinedNoMatchResult.stdout, 'false', '--filter:bool with combined filters returns false on no match');
+
+  // Test: --filter:bool is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--filter:bool', 'Help documents --filter:bool option');
+  assertContains(helpResult.stdout, 'true/false', 'Help mentions true/false output');
+}
+
 // ============================================================================
 // MAIN
 // ============================================================================
@@ -493,6 +588,9 @@ async function main() {
     await testUnknownOption();
     await testTaskOption();
     await testJsonModes();
+    await testFilterMode();
+    await testBodyFilter();
+    await testFilterBoolMode();
   } catch (err) {
     console.error('\nTest runner error:', err);
     process.exit(1);

@@ -1,6 +1,6 @@
 {
   "name": "extract-email",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "CLI tool to extract and process emails from IMAP accounts with support for multiple account configurations and custom task plugins.",
   "type": "module",
   "main": "extractEmail.mjs",

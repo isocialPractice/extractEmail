@@ -144,8 +144,8 @@ function parseIgnoreArg(val) {
 }
 
 /**
- * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --html, --json, --attachment-download) from arguments.
- * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, fromFilter: string|null, subjectFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
+ * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool) from arguments.
+ * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, filterMode: boolean, filterBoolMode: boolean, fromFilter: string|null, subjectFilter: string|null, bodyFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
  */
 function parseSpecialArgs() {
   const args = process.argv.slice(2);
@@ -158,8 +158,11 @@ function parseSpecialArgs() {
   let htmlMode = false;
   let jsonMode = null;
   let attachmentDownload = false;
+  let filterMode = false;
+  let filterBoolMode = false;
   let fromFilter = null;
   let subjectFilter = null;
+  let bodyFilter = null;
   let attachmentFilter = false;
   const ignoreRules = [];
   const filteredArgs = [];
@@ -211,6 +214,13 @@ function parseSpecialArgs() {
     } else if (arg.startsWith('attachment=')) {
       const val = arg.substring('attachment='.length).toLowerCase();
       attachmentFilter = val === 'true';
+    } else if (arg.startsWith('body=')) {
+      bodyFilter = arg.substring('body='.length).replace(/^["']|["']$/g, '');
+    } else if (arg === '--filter:bool') {
+      filterMode = true;
+      filterBoolMode = true;
+    } else if (arg === '--filter') {
+      filterMode = true;
     } else if (arg === '--test') {
       testMode = true;
     } else if (arg === '--ignore' || arg === '-i') {
@@ -222,7 +232,7 @@ function parseSpecialArgs() {
     }
   }
 
-  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, ignoreRules, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, ignoreRules, filteredArgs };
 }
 
 /**
@@ -326,11 +336,34 @@ const help = `
   -a, --attachment-download
                         Download attachment(s) from email(s)
                         Requires one of: -n <num>, from="email@site.com",
-                        subject="pattern", or attachment=true (first with attachment)
+                        subject="pattern", body="text", or attachment=true
                         Example: extractEmail -a -n 5
                         Example: extractEmail -a from="sender@example.com"
-                        Example: extractEmail -a subject="Invoice" 
+                        Example: extractEmail -a subject="Invoice"
+                        Example: extractEmail -a body="important meeting"
                         Example: extractEmail -a attachment=true
+
+  --filter              Find and display emails matching filter criteria
+                        Uses the same filter arguments as -a (from=, subject=, body=, attachment=)
+                        Does NOT download attachments (use -a for that)
+                        Example: extractEmail --filter from="boss@work.com"
+                        Example: extractEmail --filter subject="Report"
+                        Example: extractEmail --filter body="urgent"
+                        Example: extractEmail --filter body="meeting" subject="Project"
+
+  --filter:bool         Check if any email matches filter criteria, output true/false
+                        Outputs "true" and stops immediately when a match is found
+                        Outputs "false" after checking all emails (default: 100) if no match
+                        Useful for conditional logic in scripts
+                        Example: extractEmail --filter:bool from="boss@"
+                        Example: extractEmail --filter:bool body="urgent" 50
+                        Example: extractEmail --filter:bool subject="Invoice" from="billing@"
+
+ Filter Arguments (used with -a or --filter):
+  from="email@domain"   Filter by sender email (partial match, case-insensitive)
+  subject="pattern"     Filter by subject text (partial match, case-insensitive)
+  body="text"           Filter by email body/message content (partial match, case-insensitive)
+  attachment=true       Match first email with any attachment
 
  Options:
   -h, --help            Show this help message
@@ -358,13 +391,19 @@ const help = `
   extractEmail --json:table -n 1          Get email #1 with columnar table JSON format
   extractEmail -a -n 5                    Download attachments from email #5
   extractEmail -a from="boss@work.com"    Download attachments from boss's emails
+  extractEmail -a body="invoice attached" Download attachments from emails containing text
+  extractEmail --filter from="boss@"      Find emails from boss (no download)
+  extractEmail --filter body="urgent"     Find emails with "urgent" in body
+  extractEmail --filter body="meeting" subject="Project"  Find emails matching multiple filters
+  extractEmail --filter:bool from="boss@" Check if boss email exists (outputs true/false)
+  extractEmail --filter:bool body="urgent" 50  Check last 50 emails for "urgent" in body
   extractEmail -i attachment="*.jpg" -a -n 5  Download non-.jpg attachments from email #5
   extractEmail -i from="ads@co.com" subject 50  Ignore emails from ads when listing subjects
 
  Task Sets:`;
 
-// Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download) and get remaining args.
-const { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, fromFilter, subjectFilter, attachmentFilter, ignoreRules, filteredArgs } = parseSpecialArgs();
+// Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool) and get remaining args.
+const { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, ignoreRules, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -1306,7 +1345,7 @@ async function downloadAttachments(connection, msg, headersPart, outputDir) {
 }
 
 // Check if email matches filter criteria
-function matchesFilters(headersPart, subject, hasAttachment) {
+function matchesFilters(headersPart, subject, hasAttachment, body = null) {
   if (fromFilter) {
     const from = Array.isArray(headersPart.from) ? headersPart.from.join(' ') : (headersPart.from || '');
     if (!from.toLowerCase().includes(fromFilter.toLowerCase())) {
@@ -1317,6 +1356,13 @@ function matchesFilters(headersPart, subject, hasAttachment) {
   if (subjectFilter) {
     const subjectStr = String(subject || '');
     if (!subjectStr.toLowerCase().includes(subjectFilter.toLowerCase())) {
+      return false;
+    }
+  }
+
+  if (bodyFilter) {
+    const bodyStr = typeof body === 'string' ? body : String(body || '');
+    if (!bodyStr.toLowerCase().includes(bodyFilter.toLowerCase())) {
       return false;
     }
   }
@@ -1488,8 +1534,12 @@ async function extractEmail() {
         return;
       }
 
-      // Handle attachment download with filters (no task -- task handles its own download logic).
-      if (attachmentDownload && !emailNumber && !taskName) {
+      // Handle --filter mode or attachment download with filters (no task -- task handles its own download logic).
+      // --filter mode outputs matching emails without downloading attachments.
+      // --filter:bool mode outputs "true" if match found, "false" otherwise.
+      // -a/--attachment-download mode downloads attachments from matching emails.
+      const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+      if ((attachmentDownload || filterMode) && hasFilterCriteria && !emailNumber && !taskName) {
         let foundMatch = false;
         for (const [i, msg] of messages.slice(0, count).entries()) {
           const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
@@ -1498,18 +1548,61 @@ async function extractEmail() {
           
           const hasAttachment = await getAttachmentSummaryFromMessage(msg, connection);
           
-          if (matchesFilters(headersPart, subject, hasAttachment)) {
+          // Fetch body content if bodyFilter is set
+          let emailBody = null;
+          if (bodyFilter) {
+            const struct = msg.attributes.struct;
+            const textPart = findTextPart(struct);
+            const htmlPart = findHtmlPart(struct);
+            
+            // Prefer HTML part then text part
+            if (htmlPart) {
+              try {
+                const partData = await connection.getPartData(msg, htmlPart);
+                const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+                emailBody = sanitizeHtml(htmlContent);
+              } catch (err) { /* fall through to text part */ }
+            }
+            
+            if (!emailBody && textPart) {
+              try {
+                const partData = await connection.getPartData(msg, textPart);
+                emailBody = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+              } catch (err) { /* continue with null body */ }
+            }
+          }
+          
+          if (matchesFilters(headersPart, subject, hasAttachment, emailBody)) {
             foundMatch = true;
+            
+            // --filter:bool mode: output "true" and exit immediately
+            if (filterBoolMode) {
+              console.log('true');
+              await connection.end();
+              return;
+            }
+            
+            // Normal --filter mode: show details
             console.log(`\nFound matching email #${i + 1}:`);
             console.log('From:', headersPart.from || '');
             console.log('Subject:', subject);
             
-            const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
-            await downloadAttachments(connection, msg, headersPart, downloadDir);
+            // Only download attachments if -a/--attachment-download flag is set
+            if (attachmentDownload) {
+              const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
+              await downloadAttachments(connection, msg, headersPart, downloadDir);
+            }
             
-            // If attachment=true filter, only download from first match
+            // If attachment=true filter, only process first match
             if (attachmentFilter) break;
           }
+        }
+        
+        // --filter:bool mode: output "false" if no match was found
+        if (filterBoolMode) {
+          console.log('false');
+          await connection.end();
+          return;
         }
         
         if (!foundMatch) {
