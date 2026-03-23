@@ -95,6 +95,52 @@ const pattern = resolveFilterPattern("{{ dates.month }}");
 const matches = testPattern(pattern, "March Report");  // true
 ```
 
+##### extractDateRangeFromText(text)
+
+Extracts a date range from natural language body text by detecting temporal keyword phrases.
+
+```javascript
+import { extractDateRangeFromText } from './helpers/filterHelper.mjs';
+
+// "after <date>" / "since <date>" → start to today
+const range = extractDateRangeFromText(
+  "Has Howard gotten any fuel after 2/01? I need to see the gallons."
+);
+// range.start  => Date: Feb 1 2026
+// range.end    => Date: today (end of day)
+// range.description => "after 2/01"
+
+// "from <date> to <date>"
+const explicit = extractDateRangeFromText("Covers from 02/01/2026 to 03/23/2026");
+// explicit.start => Feb 1 2026
+// explicit.end   => Mar 23 2026
+```
+
+**Supported keyword patterns:**
+- `after <date>` / `since <date>` → `{ start: date, end: today }`
+- `before <date>` → `{ start: null, end: date }`
+- `from <date> to <date>` → `{ start, end }`
+- `between <date> and <date>` → `{ start, end }`
+
+**Supported date formats:**
+- Numeric short: `2/01`, `2/1`, `12/31`
+- Numeric full: `02/01/2026`, `2/1/26`
+- Named month: `Feb 1`, `February 1st`, `February 1, 2026`
+
+Returns `null` when no recognizable date pattern is found.
+
+##### testDateRange(date, range)
+
+Tests whether a date falls within a resolved date range. A `null` boundary is open-ended.
+
+```javascript
+import { extractDateRangeFromText, testDateRange } from './helpers/filterHelper.mjs';
+
+const range = extractDateRangeFromText("after 2/01");
+const emailDate = new Date("2026-02-15");
+const inRange = testDateRange(emailDate, range);  // true
+```
+
 #### Pattern Types
 
 **Plain String:**

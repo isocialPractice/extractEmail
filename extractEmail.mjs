@@ -10,6 +10,7 @@ import { simpleParser } from 'mailparser';
 import { convert as htmlToText } from 'html-to-text';
 import { parseDocument } from 'htmlparser2';
 import { resolveFilterPattern, testPattern } from './helpers/filterHelper.mjs';
+import { start as startMonitor, ping, stop } from './helpers/activityMonitor.mjs';
 // imap-simple is loaded dynamically to support --test mode without dependencies
 
 // Get directory of this script for resolving relative paths.
@@ -144,8 +145,35 @@ function parseIgnoreArg(val) {
 }
 
 /**
- * Parse special flags (--config, --test, --task, --output-folder, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool) from arguments.
- * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, filterMode: boolean, filterBoolMode: boolean, fromFilter: string|null, subjectFilter: string|null, bodyFilter: string|null, attachmentFilter: boolean, filteredArgs: string[] }}
+ * Parse a range string into { start, end }.
+ * Supports:
+ *   "5-10"    → emails 5 through 10
+ *   "50-"     → emails 50 through last
+ *   "50-last" → emails 50 through last
+ * @param {string} rangeStr
+ * @returns {{ start: number, end: number|null }}  end is null for open-ended ranges
+ */
+function parseRangeArg(rangeStr) {
+  // Open-ended: "50-" or "50-last" (case-insensitive)
+  const openMatch = rangeStr.match(/^(\d+)-(?:last)?$/i);
+  if (openMatch) {
+    const start = parseInt(openMatch[1], 10);
+    if (start < 1) throw new Error('--range start must be >= 1');
+    return { start, end: null };
+  }
+  // Bounded: "5-10"
+  const boundedMatch = rangeStr.match(/^(\d+)-(\d+)$/);
+  if (!boundedMatch) throw new Error(`Invalid --range format: "${rangeStr}". Expected format: 5-10, 50-, or 50-last`);
+  const start = parseInt(boundedMatch[1], 10);
+  const end = parseInt(boundedMatch[2], 10);
+  if (start < 1) throw new Error('--range start must be >= 1');
+  if (end < start) throw new Error('--range end must be >= start (e.g. 5-10)');
+  return { start, end };
+}
+
+/**
+ * Parse special flags (--config, --test, --task, --output-folder, --number, --range, --full-body, --html, --json, --attachment-download, --filter, --filter:bool, --move) from arguments.
+ * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, emailRange: {start:number,end:number}|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, filterMode: boolean, filterBoolMode: boolean, fromFilter: string|null, subjectFilter: string|null, bodyFilter: string|null, attachmentFilter: boolean, moveFolder: string|null, checkFolder: string|null, filteredArgs: string[] }}
  */
 function parseSpecialArgs() {
   const args = process.argv.slice(2);
@@ -154,6 +182,7 @@ function parseSpecialArgs() {
   let taskName = null;
   let outputPath = null;
   let emailNumber = null;
+  let emailRange = null;
   let fullBody = false;
   let htmlMode = false;
   let jsonMode = null;
@@ -164,6 +193,8 @@ function parseSpecialArgs() {
   let subjectFilter = null;
   let bodyFilter = null;
   let attachmentFilter = false;
+  let moveFolder = null;
+  let checkFolder = null;
   const ignoreRules = [];
   const filteredArgs = [];
 
@@ -190,6 +221,11 @@ function parseSpecialArgs() {
     } else if (arg === '--number' || arg === '-n') {
       if (i + 1 >= args.length) throw new Error('Missing value for -n/--number');
       emailNumber = parseInt(args[++i], 10);
+    } else if (arg.startsWith('--range=')) {
+      emailRange = parseRangeArg(arg.substring('--range='.length));
+    } else if (arg === '--range') {
+      if (i + 1 >= args.length) throw new Error('Missing value for --range');
+      emailRange = parseRangeArg(args[++i]);
     } else if (arg === '--full-body' || arg === '-f') {
       fullBody = true;
     } else if (arg === '--html') {
@@ -221,6 +257,16 @@ function parseSpecialArgs() {
       filterBoolMode = true;
     } else if (arg === '--filter') {
       filterMode = true;
+    } else if (arg === '--move') {
+      if (i + 1 >= args.length) throw new Error('Missing folder name for --move');
+      moveFolder = args[++i];
+    } else if (arg.startsWith('--move=')) {
+      moveFolder = arg.substring('--move='.length);
+    } else if (arg === '--check') {
+      if (i + 1 >= args.length) throw new Error('Missing folder name for --check');
+      checkFolder = args[++i];
+    } else if (arg.startsWith('--check=')) {
+      checkFolder = arg.substring('--check='.length);
     } else if (arg === '--test') {
       testMode = true;
     } else if (arg === '--ignore' || arg === '-i') {
@@ -232,7 +278,7 @@ function parseSpecialArgs() {
     }
   }
 
-  return { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, ignoreRules, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, ignoreRules, filteredArgs };
 }
 
 /**
@@ -290,6 +336,15 @@ const help = `
   -n, --number <num>    Get a specific email by number (e.g., Email #5)
                         Always outputs the full body message
                         Example: extractEmail -n 5
+
+  --range <start-end>   Extract a specific range of emails (e.g., 5-10)
+                        Outputs emails #5 through #10 with full body
+                        Email #1 is the most recent
+                        Use 50- or 50-last to extract from #50 to the very last email
+                        Example: extractEmail --range 5-10
+                        Example: extractEmail --range=5-10
+                        Example: extractEmail --range 50-
+                        Example: extractEmail --range 50-last
 
   -f, --full-body       Output the full body message (sanitized to text, not truncated)
                         HTML elements are removed and formatted for readability
@@ -351,6 +406,23 @@ const help = `
                         Example: extractEmail --filter body="urgent"
                         Example: extractEmail --filter body="meeting" subject="Project"
 
+  --move <folder>       Move emails matching filter criteria to a specified IMAP folder
+                        Requires filter criteria (from=, subject=, body=, attachment=)
+                        Verifies the folder exists before processing; throws if it does not
+                        Supports count and --range to limit which emails are checked
+                        Example: extractEmail --move invoices body="invoice"
+                        Example: extractEmail --move invoices body="invoice" 20
+                        Example: extractEmail --move "invoiced bills" body="invoice" --range 5-10
+                        Error: Folder <name> does not exist (when folder is not found)
+
+  --check <folder>      Search emails in a named IMAP folder instead of INBOX
+                        Validates the folder exists before processing; throws if it does not
+                        Works with all other options: --range, --filter, --filter:bool, -a, --task, etc.
+                        Example: extractEmail --check "Sent" subject 20
+                        Example: extractEmail --check "Sent" --range 10-20
+                        Example: extractEmail --check "Archive" --filter body="invoice"
+                        Error: Folder <name> does not exist (when folder is not found)
+
   --filter:bool         Check if any email matches filter criteria, output true/false
                         Outputs "true" and stops immediately when a match is found
                         Outputs "false" after checking all emails (default: 100) if no match
@@ -384,6 +456,9 @@ const help = `
   extractEmail --config=work --task=myTask  Run task with specific account
   extractEmail -o ./output body 10        Write output to a file in ./output
   extractEmail -n 10                      Get email #10 with full body
+  extractEmail --range 5-10               Get emails #5 through #10 with full body
+  extractEmail --range 50-                Get emails #50 through the last email
+  extractEmail --range 50-last            Get emails #50 through the last email
   extractEmail -f all 20                  Get last 20 emails with full body (sanitized text)
   extractEmail --html all 20              Get last 20 emails with raw HTML preserved
   extractEmail --json all 10              Get last 10 emails in JSON format
@@ -399,11 +474,16 @@ const help = `
   extractEmail --filter:bool body="urgent" 50  Check last 50 emails for "urgent" in body
   extractEmail -i attachment="*.jpg" -a -n 5  Download non-.jpg attachments from email #5
   extractEmail -i from="ads@co.com" subject 50  Ignore emails from ads when listing subjects
+  extractEmail --move invoices body="invoice" 50  Move last 50 emails with "invoice" in body to invoices
+  extractEmail --move invoices body="invoice" --range 5-10  Move range 5-10 matching body filter to invoices
+  extractEmail --check "Sent" subject 20          Extract subjects from last 20 emails in Sent folder
+  extractEmail --check "Sent" --range 10-20       Get emails #10-20 from Sent folder with full body
+  extractEmail --check "Archive" --filter body="invoice"  Find invoice emails in Archive folder
 
  Task Sets:`;
 
 // Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool) and get remaining args.
-const { configName, testMode, taskName, outputPath, emailNumber, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, ignoreRules, filteredArgs } = parseSpecialArgs();
+const { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, ignoreRules, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -497,6 +577,100 @@ function filterIgnoredAttachmentSummary(summary) {
   const filtered = names.filter(name => !checkIgnoreField(name, 'attachment'));
   if (filtered.length === 0) return false;
   return filtered.length === 1 ? filtered[0] : filtered.join(', ');
+}
+
+/**
+ * Flatten all IMAP boxes into an array of { name, fullPath, attribs }.
+ * @param {object} boxes
+ * @param {string} prefix
+ * @param {string} delimiter
+ * @returns {{ name: string, fullPath: string, attribs: string[] }[]}
+ */
+function collectAllFolders(boxes, prefix = '', delimiter = '/') {
+  const result = [];
+  for (const [boxName, box] of Object.entries(boxes || {})) {
+    const sep = (box && box.delimiter) || delimiter;
+    const fullPath = prefix ? `${prefix}${sep}${boxName}` : boxName;
+    result.push({ name: boxName, fullPath, attribs: (box && box.attribs) || [] });
+    if (box && box.children) {
+      result.push(...collectAllFolders(box.children, fullPath, sep));
+    }
+  }
+  return result;
+}
+
+// Maps common shorthand folder names to their RFC 6154 IMAP special-use flag.
+const FOLDER_SPECIAL_USE = {
+  'sent':      '\\Sent',
+  'drafts':    '\\Drafts',
+  'draft':     '\\Drafts',
+  'trash':     '\\Trash',
+  'deleted':   '\\Trash',
+  'junk':      '\\Junk',
+  'spam':      '\\Junk',
+  'archive':   '\\Archive',
+  'flagged':   '\\Flagged',
+  'starred':   '\\Flagged',
+  'all':       '\\All',
+  'allmail':   '\\All',
+  'important': '\\Important',
+};
+
+/**
+ * Search IMAP boxes for a folder matching targetName using three-pass priority:
+ *   1. Exact name match (case-insensitive).
+ *   2. IMAP special-use attribute match (e.g. "Sent" → \Sent flag, finds "[Gmail]/Sent Mail").
+ *   3. Partial contains match (e.g. "Sent" matches "Sent Items", "Sent Mail").
+ * Returns the full IMAP path needed for openBox / moveMessage, or null if not found.
+ * @param {object} boxes - boxes object returned by connection.getBoxes()
+ * @param {string} targetName - folder name to search for
+ * @returns {string|null}
+ */
+function findFolderPath(boxes, targetName) {
+  const folders = collectAllFolders(boxes);
+  const nameLower = targetName.toLowerCase();
+
+  // Pass 1: exact name match
+  const exact = folders.find(f => f.name.toLowerCase() === nameLower);
+  if (exact) return exact.fullPath;
+
+  // Pass 2: IMAP special-use attribute match (RFC 6154)
+  const specialFlag = FOLDER_SPECIAL_USE[nameLower];
+  if (specialFlag) {
+    const byAttr = folders.find(f =>
+      f.attribs.some(a => a.toLowerCase() === specialFlag.toLowerCase())
+    );
+    if (byAttr) return byAttr.fullPath;
+  }
+
+  // Pass 3: partial contains match (case-insensitive)
+  const partial = folders.find(f => f.name.toLowerCase().includes(nameLower));
+  if (partial) return partial.fullPath;
+
+  return null;
+}
+
+/**
+ * Move an email (by UID) to a destination folder using the IMAP connection.
+ * Supports both imap-simple's moveMessage() and raw node-imap connection.imap.move().
+ * @param {object} connection - imap-simple connection object
+ * @param {number|string} uid - email UID
+ * @param {string} folderPath - destination folder path
+ * @returns {Promise<void>}
+ */
+async function moveEmailToFolder(connection, uid, folderPath) {
+  if (typeof connection.moveMessage === 'function') {
+    return connection.moveMessage(uid, folderPath);
+  }
+  if (connection.imap && typeof connection.imap.move === 'function') {
+    return new Promise((resolve, reject) => {
+      connection.imap.move(uid, folderPath, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+  throw new Error('Move operation not supported by current IMAP connection');
 }
 
 /************************************* SUPPORT FUNCTIONS *************************************/
@@ -926,7 +1100,7 @@ const hasBodyContent = (body) => {
 
 // Truncate body text to preview length (unless fullBody or htmlMode is enabled)
 const truncateBody = (bodyText) => {
-  if (fullBody || htmlMode || emailNumber !== null) return bodyText; // Don't truncate in full-body, html, or specific email mode
+  if (fullBody || htmlMode || emailNumber !== null || emailRange !== null) return bodyText; // Don't truncate in full-body, html, specific email, or range mode
   if (!bodyText) return bodyText;
   if (typeof bodyText === 'object') return bodyText; // Preserve parsed JSON objects (json:html, json:table)
   const text = String(bodyText);
@@ -1403,7 +1577,41 @@ async function extractEmail() {
         configEmail = await loadConfig(configName);
       }
       const connection = await imapModule.connect(configEmail);
+      if (!testMode) startMonitor();
       await connection.openBox('INBOX');
+
+      // Validate and switch to --check folder if specified.
+      if (checkFolder) {
+        const boxes = await connection.getBoxes();
+        const resolvedCheckFolder = findFolderPath(boxes, checkFolder);
+        if (!resolvedCheckFolder) {
+          console.error(`Folder "${checkFolder}" does not exist`);
+          stop();
+          await connection.end();
+          return;
+        }
+        await connection.openBox(resolvedCheckFolder);
+      }
+
+      // Validate --move folder existence before processing any emails.
+      let resolvedMoveFolder = null;
+      if (moveFolder) {
+        const hasFilter = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        if (!hasFilter && emailNumber === null) {
+          console.error('--move requires filter criteria (from=, subject=, body=, or attachment=) to specify which emails to move.');
+          stop();
+          await connection.end();
+          return;
+        }
+        const boxes = await connection.getBoxes();
+        resolvedMoveFolder = findFolderPath(boxes, moveFolder);
+        if (!resolvedMoveFolder) {
+          console.error(`Folder "${moveFolder}" does not exist`);
+          stop();
+          await connection.end();
+          return;
+        }
+      }
 
       const searchCriteria = ['ALL'];
       const fetchOptions = {
@@ -1411,15 +1619,22 @@ async function extractEmail() {
         struct: true
       };
 
-      const messages = await connection.search(searchCriteria, fetchOptions);
+      let messages = await connection.search(searchCriteria, fetchOptions);
 
       // Sort newest-received first by INTERNALDATE.
       messages.sort((a, b) => new Date(b.attributes.date || 0) - new Date(a.attributes.date || 0));
+
+      // Default: exclude emails flagged \Sent or $Sent (sent-folder emails surfaced in INBOX).
+      messages = messages.filter(msg => {
+        const flags = msg.attributes.flags || [];
+        return !flags.some(f => /^[\\$]sent$/i.test(f));
+      });
 
       // Handle specific email number request
       if (emailNumber !== null) {
         if (emailNumber < 1 || emailNumber > messages.length) {
           console.error(`Error: Email #${emailNumber} does not exist. Total emails: ${messages.length}`);
+          stop();
           await connection.end();
           return;
         }
@@ -1522,6 +1737,17 @@ async function extractEmail() {
             const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
             await downloadAttachments(connection, msg, headersPart, downloadDir);
           }
+
+          // Handle --move: move this specific email to the target folder (filter criteria optional).
+          if (resolvedMoveFolder) {
+            const hasFilter = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+            const emailBodyForFilter = typeof body === 'string' ? body : '';
+            if (!hasFilter || matchesFilters(headersPart, subject, currentAttachmentSummary, emailBodyForFilter)) {
+              const uid = specificMsg.attributes.uid;
+              await moveEmailToFolder(connection, uid, resolvedMoveFolder);
+              console.log(`Moved email #${emailNumber} to "${moveFolder}"`);
+            }
+          }
         }
 
         // Output JSON if in JSON mode
@@ -1530,18 +1756,193 @@ async function extractEmail() {
           writeOutputLine(jsonString);
         }
 
+        stop();
         await connection.end();
         return;
       }
 
-      // Handle --filter mode or attachment download with filters (no task -- task handles its own download logic).
+      // Handle --range: extract a specific range of emails (e.g. --range 5-10)
+      if (emailRange !== null) {
+        const { start } = emailRange;
+        // Resolve null end (open-ended: 50- or 50-last) to the actual last email.
+        const end = emailRange.end !== null ? emailRange.end : messages.length;
+        if (start > messages.length) {
+          console.error(`Error: Range start #${start} exceeds total emails: ${messages.length}`);
+          stop();
+          await connection.end();
+          return;
+        }
+        const clampedEnd = Math.min(end, messages.length);
+        const rangeMessages = messages.slice(start - 1, clampedEnd);
+
+        const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const useFilters = (attachmentDownload || filterMode || filterBoolMode || moveFolder) && hasFilterCriteria;
+        let foundMatch = false;
+
+        for (const [i, msg] of rangeMessages.entries()) {
+          ping();
+          const emailNum = start + i;
+          const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
+          let subject = headersPart.subject || '';
+          if (Array.isArray(subject)) subject = subject.join(' ');
+
+          // Apply email-level ignore rules (-i from/subject).
+          if (ignoreRules.length > 0) {
+            const fromStr = Array.isArray(headersPart.from) ? headersPart.from.join(' ') : (headersPart.from || '');
+            if (checkIgnoreField(fromStr, 'from')) continue;
+            if (checkIgnoreField(subject, 'subject')) continue;
+          }
+
+          const struct = msg.attributes.struct;
+          let body = '';
+
+          const needsHtmlStructure = (jsonMode === 'html' || jsonMode === 'table');
+          const textPart = findTextPart(struct);
+          const htmlPart = findHtmlPart(struct);
+
+          if (htmlPart) {
+            try {
+              const partData = await connection.getPartData(msg, htmlPart);
+              const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+              if (htmlContent && htmlContent.trim()) {
+                body = processBody(htmlContent, true);
+              }
+            } catch (err) {
+              console.error('Error fetching HTML part:', err);
+            }
+          }
+
+          if (!hasBodyContent(body) && textPart) {
+            try {
+              const partData = await connection.getPartData(msg, textPart);
+              body = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+            } catch (err) {
+              console.error('Error fetching text part:', err);
+            }
+          }
+
+          if (!hasBodyContent(body)) {
+            try {
+              const uid = msg.attributes.uid;
+              const fullFetchOptions = { bodies: ['TEXT'], struct: false };
+              const refetch = await connection.search([['UID', uid]], fullFetchOptions);
+              if (refetch && refetch.length > 0) {
+                const textPart2 = refetch[0].parts.find(p => p.which === 'TEXT');
+                if (textPart2) {
+                  const rawBody = normalizePartBody(textPart2.body);
+                  const parsed = await simpleParser(rawBody);
+                  body = parsed.text || parsed.html || '';
+                }
+              }
+            } catch (err) {
+              console.error('Error re-fetching message body:', err);
+            }
+          }
+
+          if (needsHtmlStructure && typeof body === 'string' && body.trim()) {
+            body = processBody(body, /<[a-z][\s\S]*>/i.test(body));
+          }
+
+          currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
+          currentAttachmentSummary = filterIgnoredAttachmentSummary(currentAttachmentSummary);
+
+          // Implicit filtering: criteria present but no explicit mode flag (-a/--filter/--filter:bool).
+          // Skips non-matching emails but shows full output for matches (e.g. --range 15-20 body="text").
+          if (hasFilterCriteria && !filterMode && !filterBoolMode && !attachmentDownload) {
+            const emailBodyForFilter = typeof body === 'string' ? body : '';
+            if (!matchesFilters(headersPart, subject, currentAttachmentSummary, emailBodyForFilter)) continue;
+            foundMatch = true;
+            // Falls through to standard output below.
+          }
+
+          // Apply filter criteria when --filter, --filter:bool, or -a mode is active.
+          if (useFilters) {
+            const emailBodyForFilter = typeof body === 'string' ? body : '';
+            if (!matchesFilters(headersPart, subject, currentAttachmentSummary, emailBodyForFilter)) continue;
+            foundMatch = true;
+
+            // --filter:bool: output "true" and exit immediately on first match.
+            if (filterBoolMode) {
+              console.log('true');
+              stop();
+              await connection.end();
+              return;
+            }
+
+            // --filter mode: show summary info only.
+            if (filterMode) {
+              console.log(`\nFound matching email #${emailNum}:`);
+              console.log('From:', headersPart.from || '');
+              console.log('Subject:', subject);
+            }
+
+            // -a: download attachments from matching email.
+            if (attachmentDownload) {
+              const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
+              await downloadAttachments(connection, msg, headersPart, downloadDir);
+            }
+
+            // --move: move matching email to target folder.
+            if (resolvedMoveFolder) {
+              const uid = msg.attributes.uid;
+              await moveEmailToFolder(connection, uid, resolvedMoveFolder);
+              console.log(`Moved email #${emailNum} to "${moveFolder}": "${subject}"`);
+            }
+
+            if (attachmentFilter) break;
+            continue;
+          }
+
+          // Task or option output — mirrors the standard count-based loop.
+          // emailCount is used by outputToTerminal for the "=== Email #N ===" header;
+          // set it so the displayed number matches the actual range position.
+          emailCount = emailNum - 1;
+          handleTaskSets(extract);
+
+          if (optionCall == 1 && !taskName) {
+            handleOption(extract, headersPart, subject, body);
+          } else {
+            await handleTask(extract, headersPart, subject, body, connection, msg, !!taskName);
+          }
+
+          if (attachmentDownload) {
+            const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
+            await downloadAttachments(connection, msg, headersPart, downloadDir);
+          }
+
+          // For attachment=true implicit filter, stop after first matching email is output.
+          if (hasFilterCriteria && !filterMode && !filterBoolMode && !attachmentDownload && attachmentFilter) break;
+        }
+
+        // End-of-range responses for filter modes.
+        if (hasFilterCriteria) {
+          if (filterBoolMode) {
+            console.log('false');
+          } else if (!attachmentDownload && !foundMatch) {
+            console.log('No emails found matching the specified filters.');
+          }
+        }
+
+        if (jsonMode) {
+          const jsonString = JSON.stringify(jsonOutput, null, 2);
+          writeOutputLine(jsonString);
+        }
+
+        stop();
+        await connection.end();
+        return;
+      }
+
+      // Handle --filter mode, attachment download, or --move with filters (no task).
       // --filter mode outputs matching emails without downloading attachments.
       // --filter:bool mode outputs "true" if match found, "false" otherwise.
       // -a/--attachment-download mode downloads attachments from matching emails.
+      // --move mode moves matching emails to the specified IMAP folder.
       const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
-      if ((attachmentDownload || filterMode) && hasFilterCriteria && !emailNumber && !taskName) {
+      if ((attachmentDownload || filterMode || moveFolder) && hasFilterCriteria && !emailNumber && !taskName) {
         let foundMatch = false;
         for (const [i, msg] of messages.slice(0, count).entries()) {
+          ping();
           const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
           let subject = headersPart.subject || '';
           if (Array.isArray(subject)) subject = subject.join(' ');
@@ -1578,19 +1979,29 @@ async function extractEmail() {
             // --filter:bool mode: output "true" and exit immediately
             if (filterBoolMode) {
               console.log('true');
+              stop();
               await connection.end();
               return;
             }
             
             // Normal --filter mode: show details
-            console.log(`\nFound matching email #${i + 1}:`);
-            console.log('From:', headersPart.from || '');
-            console.log('Subject:', subject);
+            if (filterMode || !moveFolder) {
+              console.log(`\nFound matching email #${i + 1}:`);
+              console.log('From:', headersPart.from || '');
+              console.log('Subject:', subject);
+            }
             
             // Only download attachments if -a/--attachment-download flag is set
             if (attachmentDownload) {
               const downloadDir = outputOptions?.path || path.join(process.cwd(), 'attachments');
               await downloadAttachments(connection, msg, headersPart, downloadDir);
+            }
+
+            // --move: move matching email to target folder.
+            if (resolvedMoveFolder) {
+              const uid = msg.attributes.uid;
+              await moveEmailToFolder(connection, uid, resolvedMoveFolder);
+              console.log(`Moved email #${i + 1} to "${moveFolder}": "${subject}"`);
             }
             
             // If attachment=true filter, only process first match
@@ -1601,6 +2012,7 @@ async function extractEmail() {
         // --filter:bool mode: output "false" if no match was found
         if (filterBoolMode) {
           console.log('false');
+          stop();
           await connection.end();
           return;
         }
@@ -1609,6 +2021,7 @@ async function extractEmail() {
           console.log('No emails found matching the specified filters.');
         }
         
+        stop();
         await connection.end();
         return;
       }
@@ -1619,6 +2032,7 @@ async function extractEmail() {
       emailCount = 0;
 
       for (const [i, msg] of lastMessages.entries()) {
+        ping();
         const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
         let subject = headersPart.subject || '';
         if (Array.isArray(subject)) subject = subject.join(' ');
@@ -1706,6 +2120,7 @@ async function extractEmail() {
         writeOutputLine(jsonString);
       }
 
+      stop();
       await connection.end();
     } catch (err) {
       console.error('Error fetching emails:', err);
@@ -1714,4 +2129,5 @@ async function extractEmail() {
 }
 
 // Call main function.
+process.on('SIGINT', () => { stop(); process.exit(130); });
 extractEmail();

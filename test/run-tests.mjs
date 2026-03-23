@@ -567,9 +567,183 @@ async function testFilterBoolMode() {
   assertContains(helpResult.stdout, 'true/false', 'Help mentions true/false output');
 }
 
+async function testRangeOption() {
+  console.log('\n[Test Suite] --range Option\n');
+
+  // Test: --range extracts multiple emails with full body
+  const rangeResult = await runCommand(['--range', '1-3']);
+  assertContains(rangeResult.stdout, 'Email #1', '--range includes Email #1');
+  assertContains(rangeResult.stdout, 'Email #2', '--range includes Email #2');
+  assertContains(rangeResult.stdout, 'Email #3', '--range includes Email #3');
+  assertContains(rangeResult.stdout, 'Body:', '--range outputs full body');
+
+  // Test: --range= equals-sign syntax works
+  const rangeEqResult = await runCommand(['--range=2-4']);
+  assertContains(rangeEqResult.stdout, 'Email #2', '--range= syntax includes Email #2');
+  assertContains(rangeEqResult.stdout, 'Email #4', '--range= syntax includes Email #4');
+  assertNotContains(rangeEqResult.stdout, 'Email #1', '--range= syntax does not include Email #1');
+  assertNotContains(rangeEqResult.stdout, 'Email #5', '--range= syntax does not include Email #5');
+
+  // Test: open-ended range "50-" syntax goes to the last email (mock has 7 emails, so 5- = #5,#6,#7)
+  const rangeOpenResult = await runCommand(['--range', '5-']);
+  assertContains(rangeOpenResult.stdout, 'Email #5', '--range 5- includes Email #5');
+  assertContains(rangeOpenResult.stdout, 'Email #6', '--range 5- includes Email #6');
+  assertContains(rangeOpenResult.stdout, 'Email #7', '--range 5- includes Email #7');
+  assertNotContains(rangeOpenResult.stdout, 'Email #4', '--range 5- does not include Email #4');
+
+  // Test: "50-last" syntax is equivalent to "50-"
+  const rangeOpenLastResult = await runCommand(['--range', '5-last']);
+  assertContains(rangeOpenLastResult.stdout, 'Email #5', '--range 5-last includes Email #5');
+  assertContains(rangeOpenLastResult.stdout, 'Email #7', '--range 5-last includes Email #7');
+  assertNotContains(rangeOpenLastResult.stdout, 'Email #4', '--range 5-last does not include Email #4');
+
+  // Test: open-ended help text is documented
+  const helpResult2 = await runCommand(['--help'], false);
+  assertContains(helpResult2.stdout, '50-', 'Help documents open-ended --range syntax');
+
+  // Test: --range email numbers match actual positions (not 1-based within range)
+  const rangeNumResult = await runCommand(['--range', '3-3']);
+  assertContains(rangeNumResult.stdout, '=== Email #3 ===', '--range single email shows correct number');
+  assertNotContains(rangeNumResult.stdout, '=== Email #1 ===', '--range single email does not show Email #1');
+
+  // Test: --range with JSON output
+  const rangeJsonResult = await runCommand(['--json', '--range', '1-2']);
+  try {
+    const json = JSON.parse(rangeJsonResult.stdout.replace(/^\[TEST MODE\].*\n/, '').trim());
+    if (json['Email #1'] && json['Email #2']) {
+      console.log('  ✓ --range JSON output has correct keys');
+      passed++;
+    } else {
+      console.log('  ✗ --range JSON output has correct keys');
+      failed++;
+    }
+  } catch (err) {
+    console.log('  ✗ --range JSON output is valid JSON');
+    failed++;
+  }
+
+  // Test: --range with criteria but no --filter flag shows full output for matching emails only
+  // (implicit filter: --range 3-5 from=invoices.com should output full Email #4 details, not summary)
+  const rangeImplicitFilterResult = await runCommand(['--range', '3-5', 'from=invoices.com']);
+  assertContains(rangeImplicitFilterResult.stdout, '=== Email #4 ===', '--range implicit filter shows matching email with header');
+  assertContains(rangeImplicitFilterResult.stdout, 'billing@invoices.com', '--range implicit filter shows matching email from field');
+  assertNotContains(rangeImplicitFilterResult.stdout, '=== Email #3 ===', '--range implicit filter hides non-matching emails');
+  assertNotContains(rangeImplicitFilterResult.stdout, 'Found matching email', '--range implicit filter shows full output (not summary)');
+
+  // Test: --range with criteria, no --filter, no match reports appropriately
+  const rangeImplicitNoMatchResult = await runCommand(['--range', '1-3', 'from=invoices.com']);
+  assertContains(rangeImplicitNoMatchResult.stdout, 'No emails found matching', '--range implicit filter reports no match when target outside range');
+
+  // Test: --range with --filter finds matching emails within range
+  // Sorted newest-first: #4=billing@invoices.com (Invoice #12345), #5=user@messaging.com (STOP)
+  const rangeFilterResult = await runCommand(['--range', '3-5', '--filter', 'from=invoices.com']);
+  assertContains(rangeFilterResult.stdout, 'Found matching email #4', '--range --filter finds matching email at correct number');
+  assertNotContains(rangeFilterResult.stdout, 'Found matching email #3', '--range --filter does not show non-matching email');
+
+  // Test: --range --filter with match outside the range reports no match
+  const rangeFilterNoMatchResult = await runCommand(['--range', '1-3', '--filter', 'from=invoices.com']);
+  assertContains(rangeFilterNoMatchResult.stdout, 'No emails found matching', '--range --filter reports no match when match is outside range');
+
+  // Test: --range --filter:bool outputs "true" when match is within range
+  const rangeBoolTrueResult = await runCommand(['--range', '3-5', '--filter:bool', 'from=invoices.com']);
+  assertContains(rangeBoolTrueResult.stdout, 'true', '--range --filter:bool outputs "true" on match');
+  assertNotContains(rangeBoolTrueResult.stdout, 'false', '--range --filter:bool does not output "false" when match found');
+
+  // Test: --range --filter:bool outputs "false" when match is outside range
+  const rangeBoolFalseResult = await runCommand(['--range', '1-3', '--filter:bool', 'from=invoices.com']);
+  assertContains(rangeBoolFalseResult.stdout, 'false', '--range --filter:bool outputs "false" when match is outside range');
+
+  // Test: --range with -i ignore skips ignored emails within range
+  const rangeIgnoreResult = await runCommand(['--range', '3-5', '-i', 'from=invoices.com']);
+  assertNotContains(rangeIgnoreResult.stdout, 'billing@invoices.com', '--range -i ignores matching email');
+  assertContains(rangeIgnoreResult.stdout, 'Email #3', '--range -i still shows non-ignored emails');
+
+  // Test: --range is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--range', 'Help documents --range option');
+}
+
 // ============================================================================
 // MAIN
 // ============================================================================
+
+async function testCheckOption() {
+  console.log('\n[Test Suite] --check Option\n');
+
+  // Test: --check with a valid folder runs successfully
+  const sentResult = await runCommand(['--check', 'Sent', 'subject', '5']);
+  assertContains(sentResult.stdout, '[TEST MODE]', '--check with valid folder runs in test mode');
+  assertContains(sentResult.stdout, 'Subject:', '--check with valid folder extracts subjects');
+
+  // Test: --check with non-existent folder shows "does not exist" error
+  const noFolderResult = await runCommand(['--check', 'NonExistentFolder999']);
+  const noFolderOut = noFolderResult.stdout + noFolderResult.stderr;
+  assertContains(noFolderOut, 'does not exist', '--check shows error for missing folder');
+
+  // Test: --check with --range processes emails in specified folder
+  const rangeResult = await runCommand(['--check', 'Sent', '--range', '1-3']);
+  assertContains(rangeResult.stdout, 'Email #1', '--check with --range processes emails');
+
+  // Test: --check with --filter does not error on valid folder
+  const filterResult = await runCommand(['--check', 'Sent', '--filter', 'body=invoice']);
+  const filterOut = filterResult.stdout + filterResult.stderr;
+  assertNotContains(filterOut, 'does not exist', '--check with --filter does not error on valid folder');
+
+  // Test: --check with --filter:bool works against the specified folder
+  const boolResult = await runCommand(['--check', 'Sent', '--filter:bool', 'from=example.com']);
+  const boolOut = boolResult.stdout;
+  const hasBoolOutput = boolOut.includes('true') || boolOut.includes('false');
+  if (hasBoolOutput) {
+    console.log('  ✓ --check with --filter:bool outputs true or false');
+    passed++;
+  } else {
+    console.log('  ✗ --check with --filter:bool outputs true or false');
+    failed++;
+  }
+
+  // Test: --check is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--check', 'Help documents --check option');
+}
+
+async function testMoveOption() {
+  console.log('\n[Test Suite] --move Option\n');
+
+  // Test: --move with body= filter moves matching emails and confirms the move
+  const moveResult = await runCommand(['--move', 'invoices', 'body=invoice']);
+  assertContains(moveResult.stdout, 'Moved email', '--move moves matching emails');
+  assertContains(moveResult.stdout, 'invoices', '--move shows destination folder name');
+
+  // Test: --move with subject= filter
+  const moveSubjectResult = await runCommand(['--move', 'invoices', 'subject=Invoice']);
+  assertContains(moveSubjectResult.stdout, 'Moved email', '--move subject= filter moves matching emails');
+
+  // Test: --move with non-existent folder shows "does not exist" error
+  const noFolderResult = await runCommand(['--move', 'nonexistentfolder777', 'body=invoice']);
+  const noFolderOut = noFolderResult.stdout + noFolderResult.stderr;
+  assertContains(noFolderOut, 'does not exist', '--move shows error for missing folder');
+
+  // Test: --move with --range moves matching emails within range
+  const rangeResult = await runCommand(['--move', 'invoices', 'body=invoice', '--range', '1-7']);
+  assertContains(rangeResult.stdout, 'Moved email', '--move with --range moves matching emails');
+
+  // Test: --move with count limit
+  const countResult = await runCommand(['--move', 'invoices', 'body=invoice', '5']);
+  assertContains(countResult.stdout, 'Moved email', '--move with count parameter works');
+
+  // Test: --move without filter criteria shows informative error
+  const noFilterResult = await runCommand(['--move', 'invoices']);
+  const noFilterOut = noFilterResult.stdout + noFilterResult.stderr;
+  assertContains(noFilterOut, 'requires filter', '--move without filter criteria shows error');
+
+  // Test: --move no matches shows expected message
+  const noMatchResult = await runCommand(['--move', 'invoices', 'body=xyznonexistenttext999']);
+  assertContains(noMatchResult.stdout, 'No emails found matching', '--move reports no match when none found');
+
+  // Test: --move is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--move', 'Help documents --move option');
+}
 
 async function main() {
   console.log('========================================');
@@ -591,6 +765,9 @@ async function main() {
     await testFilterMode();
     await testBodyFilter();
     await testFilterBoolMode();
+    await testRangeOption();
+    await testMoveOption();
+    await testCheckOption();
   } catch (err) {
     console.error('\nTest runner error:', err);
     process.exit(1);

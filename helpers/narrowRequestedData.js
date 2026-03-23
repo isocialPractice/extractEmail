@@ -123,7 +123,7 @@ function detectDocumentType(text) {
  * Parse relative date language and return { start, end } as MM-MM-YYYY strings.
  * Reference point: TODAY (example 03-12-2026).
  */
-function extractDateRange(rawText, today = new Date('2026-03-12')) {
+function extractDateRange(rawText, today = new Date()) {
   // First replace word-numbers with digits
   const text = wordsToDigits(rawText);
 
@@ -208,6 +208,26 @@ function extractDateRange(rawText, today = new Date('2026-03-12')) {
     return { start: formatDate(startDate), end: formatDate(endDateM), description: `${myMatch[1]} ${y}` };
   }
 
+  // "after <date>" or "since <date>"  e.g. "after 2/01", "since 02/01/2026"
+  const afterPattern = /\b(?:after|since)\s+(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/i;
+  const afterMatch = text.match(afterPattern);
+  if (afterMatch) {
+    const start = parseShortDate(afterMatch[1], today);
+    if (start) {
+      return { start, end: formatDate(endDate), description: `after ${afterMatch[1]}` };
+    }
+  }
+
+  // "before <date>"  e.g. "before 3/15", "before 03/15/2026"
+  const beforePattern = /\bbefore\s+(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/i;
+  const beforeMatch = text.match(beforePattern);
+  if (beforeMatch) {
+    const end = parseShortDate(beforeMatch[1], today);
+    if (end) {
+      return { start: null, end, description: `before ${beforeMatch[1]}` };
+    }
+  }
+
   return null; // no date range found
 }
 
@@ -224,6 +244,31 @@ function normaliseDate(str) {
   const [m, d, y] = parts;
   const year = y.length === 2 ? '20' + y : y;
   return `${m.padStart(2,'0')}/${d.padStart(2,'0')}/${year}`;
+}
+
+/**
+ * Parse a date string that may omit the year (M/D or M-D).
+ * Full dates (M/D/YYYY or M/D/YY) are forwarded to normaliseDate.
+ * For partial dates the year is inferred from `today`; if the result
+ * would be in the future relative to today, the prior year is used.
+ *
+ * @param {string} str  e.g. "2/01", "2/1", "02/01/2026"
+ * @param {Date} today
+ * @returns {string|null}  MM/DD/YYYY or null
+ */
+function parseShortDate(str, today) {
+  const parts = str.split(/[\/\-]/);
+  if (parts.length === 3) return normaliseDate(str);
+  if (parts.length === 2) {
+    const m = parseInt(parts[0], 10);
+    const d = parseInt(parts[1], 10);
+    if (isNaN(m) || isNaN(d)) return null;
+    const year = today.getFullYear();
+    const candidate = new Date(year, m - 1, d);
+    const useYear = candidate > today ? year - 1 : year;
+    return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${useYear}`;
+  }
+  return null;
 }
 
 // ---------------------------------------------
@@ -631,7 +676,7 @@ function resolveRecipient(recipient, mapConfig, taskMapData) {
  *   - taskMapData: MAP_REQUEST_DATA from task (for %requestor% resolution)
  *   - projectRoot: project root directory for resolving relative paths
  */
-function parseEmailTask(messageText, referenceDate = new Date('2026-03-12'), options = {}) {
+function parseEmailTask(messageText, referenceDate = new Date(), options = {}) {
   const documentType = detectDocumentType(messageText);
   const dateRange    = extractDateRange(messageText, referenceDate);
   let recipient      = extractRecipient(messageText);
@@ -726,7 +771,7 @@ const __dirname = dirname(__filename);
 const isMain = process.argv[1] === __filename || process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMain) {
-  const TODAY = new Date('2026-03-12');
+  const TODAY = new Date();
   
   // Parse command-line arguments
   const args = process.argv.slice(2);

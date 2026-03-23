@@ -6,6 +6,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0]
+
+### Added
+
+- `--check` option to inspect emails and report matches without downloading or processing
+  - Outputs a summary of matching emails (number, from, subject, date)
+  - Non-destructive — no emails are moved, downloaded, or modified
+- `--range <start-end>` option to process a specific range of emails by number
+  - Accepts start and end as inclusive bounds (e.g., `--range 5-15`)
+  - Works in combination with other flags such as `-a`, `--task`, and `--filter`
+- `--move <folder>` option to move processed emails to a specified IMAP folder after processing
+  - Supports any valid IMAP folder path (e.g., `Processed`, `Archive/2026`)
+  - Can be combined with `--task` and `-a` for post-processing organization
+
+### Changed
+
+- Added a doing-work indicator during long-running operations to provide visual feedback that processing is active
+- Email processing operations now run as background processes to prevent blocking when handling large mailboxes
+- Default behaviour no longer includes the `Sent` folder when searching or listing emails
+  - Previously all IMAP folders including `Sent` were included by default
+  - Use an explicit folder argument to include `Sent` when needed
+
 ## [2.4.0]
 
 ### Added

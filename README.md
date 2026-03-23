@@ -104,7 +104,7 @@ Account filenames must not contain spaces or special characters (`/ \ : * ? " < 
 ## Usage
 
 ```bash
-extractEmail [--config=<account>] [--task=<task>] [-o <path>] [-n <num>] [-f] [--html] [--json[:html|table]] [-a] [--filter] [option|task] [count]
+extractEmail [--config=<account>] [--task=<task>] [-o <path>] [-n <num>] [-f] [--html] [--json[:html|table]] [-a] [--filter] [--move <folder>] [option|task] [count]
 ```
 
 ### Account Selection
@@ -136,10 +136,11 @@ If `--task` is provided, it looks for the task in the `tasksFolder` configured i
 | `-a, --attachment-download` | Download attachment(s) from email(s). Requires one of: `-n <num>`, `from="email@site.com"`, `subject="pattern"`, `body="text"`, or `attachment=true`. |
 | `--filter` | Find and display emails matching filter criteria (same filters as `-a`, but without downloading attachments). |
 | `--filter:bool` | Check if any email matches filter criteria, output `true` or `false`. Stops immediately on first match. Default checks 100 emails. |
+| `--move <folder>` | Move emails matching filter criteria to a named IMAP folder. Verifies the folder exists; outputs an error if not found. Supports `[count]` and `--range`. |
 
 ### Filter Arguments
 
-Used with `-a, --attachment-download`, `--filter`, or `--filter:bool` to filter emails:
+Used with `-a, --attachment-download`, `--filter`, `--filter:bool`, or `--move` to filter emails:
 
 | Filter | Description |
 |--------|-------------|

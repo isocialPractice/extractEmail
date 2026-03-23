@@ -206,6 +206,7 @@ class MockConnection {
     this.emails = emails;
     this.isOpen = false;
     this.boxName = null;
+    this.movedMessages = [];
   }
 
   async openBox(boxName) {
@@ -247,6 +248,52 @@ class MockConnection {
 
   async end() {
     this.isOpen = false;
+  }
+
+  async getBoxes() {
+    return {
+      'INBOX': {
+        attribs: ['\\HasNoChildren'],
+        delimiter: '/',
+        children: null
+      },
+      'invoices': {
+        attribs: ['\\HasNoChildren'],
+        delimiter: '/',
+        children: null
+      },
+      'Sent': {
+        attribs: ['\\Sent', '\\HasNoChildren'],
+        delimiter: '/',
+        children: null
+      },
+      'Drafts': {
+        attribs: ['\\Drafts', '\\HasNoChildren'],
+        delimiter: '/',
+        children: null
+      },
+      '[Gmail]': {
+        attribs: ['\\Noselect'],
+        delimiter: '/',
+        children: {
+          'Sent Mail': {
+            attribs: ['\\Sent', '\\HasNoChildren'],
+            delimiter: '/',
+            children: null
+          },
+          'All Mail': {
+            attribs: ['\\All', '\\HasNoChildren'],
+            delimiter: '/',
+            children: null
+          }
+        }
+      }
+    };
+  }
+
+  async moveMessage(uid, boxName) {
+    this.movedMessages.push({ uid, boxName });
+    // No-op for mock: just record the move
   }
 }
 

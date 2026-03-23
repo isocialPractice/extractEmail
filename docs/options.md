@@ -10,6 +10,7 @@ Complete reference for all extractEmail command-line options.
 | `--config=<name>` | Use account config from accounts folder |
 | `--task=<name>` | Run a custom task plugin from tasks folder |
 | `-n, --number <num>` | Get a specific email by number |
+| `--range <start-end>` | Get a range of emails (e.g. `5-10`) |
 | `-f, --full-body` | Output complete body text (not truncated) |
 | `--html` | Preserve raw HTML content in body output |
 | `--json` | Output results in JSON format |
@@ -18,10 +19,13 @@ Complete reference for all extractEmail command-line options.
 | `-a, --attachment-download` | Download attachments from matching emails |
 | `--filter` | Find and display emails matching filter criteria |
 | `--filter:bool` | Check if any email matches filters, output true/false |
+| `--move <folder>` | Move matching emails to a named IMAP folder |
+| `--check <folder>` | Search emails in a named IMAP folder instead of INBOX |
 | `-i, --ignore <rule>` | Ignore emails or attachments matching a pattern |
 | `-o, --output-folder <path>` | Write output to a folder or file |
 | `-h, --help` | Display help message |
 | `--test` | Run with mock email data (no IMAP connection) |
+| `[count]` | Digit to specify the number of emails to extract |
 
 ### Filter Arguments
 
@@ -115,6 +119,41 @@ extractEmail -a -n 5
 - Body text is automatically sanitized (HTML converted to readable text)
 - Can be combined with `-a` for attachment download
 - Can be combined with `--task` to run task on specific email
+
+---
+
+### `--range <start-end>`
+
+Extract a specific range of emails by number. Email #1 is the most recent.
+
+```bash
+# Get emails 5 through 10
+extractEmail --range 5-10
+
+# Equals sign syntax also works
+extractEmail --range=5-10
+
+# Open-ended: from #50 to the very last email
+extractEmail --range 50-
+extractEmail --range 50-last
+
+# Combine with JSON output
+extractEmail --json --range 3-8
+
+# Open-ended with task
+extractEmail --config=work --task=myTask --range 50-
+```
+
+**Features:**
+- Always outputs full body content (not truncated)
+- Body text is automatically sanitized (HTML converted to readable text)
+- Outputs each email with its actual number (e.g. `=== Email #5 ===`)
+- End of range is clamped to total email count if it exceeds it
+- `50-` or `50-last` extracts from #50 to the very last email (open-ended)
+- Supports field extraction (`from`, `subject`, `body`, `all`, etc.) and `--task`
+- Filter criteria (`from=`, `subject=`, `body=`) narrow output without a flag
+- Can be combined with `--filter`, `--filter:bool`, `-a`, and `-i`
+- Can be combined with `--json`, `--json:html`, or `--json:table`
 
 ---
 
@@ -370,9 +409,71 @@ fi
 
 ---
 
-## Filter Arguments
+### `--move <folder>`
 
-Used with `-a, --attachment-download`, `--filter`, or `--filter:bool`:
+Move emails matching filter criteria to a named IMAP folder on the server.
+
+```bash
+# Move emails with "invoice" in body to the invoices folder
+extractEmail --move invoices body="invoice"
+
+# Move last 20 matching emails
+extractEmail --move invoices body="invoice" 20
+
+# Move matching emails within a range (folder names with spaces need quotes)
+extractEmail --move "invoiced bills" body="invoice" --range 5-10
+
+# Combine with from= filter
+extractEmail --move invoices from="billing@company.com"
+```
+
+**Behavior:**
+- Verifies the folder exists on the IMAP server before processing
+- Outputs `Folder "<name>" does not exist` and stops if the folder is not found
+- Moves each matching email and logs: `Moved email #N to "<folder>": "<subject>"`
+- Requires filter criteria (`from=`, `subject=`, `body=`, or `attachment=`)
+- Supports `[count]` and `--range` to limit which emails are checked
+- Can be combined with `--filter` to also show matching email details
+
+**Error Example:**
+```
+Folder "invoiced bills" does not exist
+```
+
+---
+
+### `--check <folder>`
+
+Search emails in a named IMAP folder instead of the default INBOX.
+
+```bash
+# Extract subjects from the Sent folder
+extractEmail --check "Sent" subject 20
+
+# Get emails #10-20 from the Sent folder with full body
+extractEmail --check "Sent" --range 10-20
+
+# Find emails containing "invoice" in the Archive folder
+extractEmail --check "Archive" --filter body="invoice"
+
+# Run a task against emails in a custom folder
+extractEmail --check "Reports" --task=myTask 50
+```
+
+**Behavior:**
+- Validates the folder exists on the IMAP server before processing
+- Outputs `Folder "<name>" does not exist` and stops if the folder is not found
+- Works with all extraction options: `--range`, `--filter`, `--filter:bool`, `-a`, `--task`, `--json`, etc.
+- Folder names are matched case-insensitively; nested paths are searched recursively
+
+**Error Example:**
+```
+Folder "Archive" does not exist
+```
+
+---
+
+Used with `-a, --attachment-download`, `--filter`, `--filter:bool`, or `--move`:
 
 ### `from="email@domain.com"`
 
