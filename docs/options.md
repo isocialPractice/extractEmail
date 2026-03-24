@@ -19,6 +19,10 @@ Complete reference for all extractEmail command-line options.
 | `-a, --attachment-download` | Download attachments from matching emails |
 | `--filter` | Find and display emails matching filter criteria |
 | `--filter:bool` | Check if any email matches filters, output true/false |
+| `--stop [N]` | Stop after N emails or N matches (default N=1 if omitted) |
+| `--match [N]` | Output first N matching emails in normal format (default N=1) |
+| `--count` | Output integer count of emails in set or matching filters |
+| `--index` | Output position numbers of emails in set or matching filters |
 | `--move <folder>` | Move matching emails to a named IMAP folder |
 | `--check <folder>` | Search emails in a named IMAP folder instead of INBOX |
 | `-i, --ignore <rule>` | Ignore emails or attachments matching a pattern |
@@ -406,6 +410,157 @@ if [ "$(extractEmail --filter:bool from="alert@system.com")" = "true" ]; then
   # Run some task...
 fi
 ```
+
+---
+
+### `--stop [N]`
+
+Stop processing after N emails (standard mode) or N matching emails (filter mode).
+
+```bash
+# Stop after the first email processed (N defaults to 1)
+extractEmail --stop subject 50
+
+# Stop after processing 3 emails
+extractEmail --stop 3 subject 50
+
+# With filter: stop after finding 2 matching emails
+extractEmail --filter subject="Invoice" --stop 2
+
+# With attachment download: download from up to 3 matching emails
+extractEmail -a subject="Report" --stop 3
+
+# Equals sign syntax also works
+extractEmail --stop=5 all 100
+```
+
+**Behavior:**
+- In **standard mode** (no filter flag): stops after N emails have been output, regardless of content
+- In **filter mode** (`--filter`, `-a`, `--move`, `--range` with filters): stops after N matching emails are found and processed
+- `N` is optional — when `--stop` is passed without a number, it defaults to `1` (stop after the first)
+- Supports space-separated (`--stop 3`) and equals-sign (`--stop=3`) syntax
+- Works with `--range`, `--filter`, `-a`, `--move`, `--task`, and all field extraction modes
+
+**Use Cases:**
+- Early exit when you only need the first N results
+- Limit attachment downloads to the N most recent matching emails
+- Quick preview of the newest email without processing the full count
+
+---
+
+### `--match [N]`
+
+Find and output the first N emails matching filter criteria in normal full-block format (same as standard extraction output). Defaults to `N=1` when no argument is given.
+
+```bash
+# Output the first matching email in normal format (N defaults to 1)
+extractEmail --match
+
+# Output first 3 emails matching body filter (searches default 100)
+extractEmail --filter body="some pattern" --match 3
+
+# Output first 2 matches — search ALL emails in the inbox
+extractEmail --filter body="some pattern" --match 2 all
+
+# Output first 3 matches within a specific range
+extractEmail --filter body="some pattern" --match 3 --range 100-200
+
+# Output first 3 matches from 20 emails, running a task on each match
+extractEmail --filter body="some pattern" --match 3 20 --task=taskName
+```
+
+**Behavior:**
+- Without filter criteria: outputs the first N emails in normal format (equivalent to `--stop N`)
+- With filter criteria (`from=`, `subject=`, `body=`, `attachment=`): skips non-matching emails and outputs the first N matches in normal block format
+- Output format is identical to standard extraction — full `=== Email #N ===` blocks with all requested fields
+- `N` is optional — when `--match` is passed without a number, it defaults to `1`
+- Supports space-separated (`--match 3`) and equals-sign (`--match=3`) syntax
+- Append `all` as a positional argument to search the entire inbox instead of the default 100-email limit
+- Works with `--range` to restrict the search to a specific range of emails
+- Works with `--task` to run a task on each matched email
+- Overrides `--filter` summary output — matching emails are shown in full block format, not as "Found matching email #N" summaries
+
+**Difference from `--filter` + `--stop`:**
+- `--filter ... --stop N` uses the `--filter` summary output format (`Found matching email #N: ...`)
+- `--match N` always uses the normal extraction output format (`=== Email #N ===` blocks)
+
+**Output example** (`extractEmail --filter body="invoice" --match 2`):
+```
+=== Email #3 ===
+From: billing@company.com
+Subject: Invoice for March
+Body: Please find attached your invoice...
+
+=== Email #7 ===
+From: vendor@supplier.com
+Subject: Your invoice is ready
+Body: Your monthly invoice has been generated...
+```
+
+---
+
+### `--count`
+
+Output a single integer representing the number of emails in the checked set or the number that match the specified filter criteria. No other output is produced.
+
+```bash
+# Count emails in the default set (first 100)
+extractEmail --count
+
+# Count emails with "Invoice" in subject (from default 100)
+extractEmail --count subject="Invoice"
+
+# Count matching emails from the entire inbox (all emails, not just 100)
+extractEmail --count from="boss@work.com" all
+
+# Count matching emails within a specific range
+extractEmail --count body="urgent" --range 100-200
+```
+
+**Behavior:**
+- Without filter criteria: outputs the total number of emails in the checked set
+- With filter criteria (`from=`, `subject=`, `body=`, `attachment=`): outputs the count of matching emails
+- Append `all` as a positional argument to scan the entire inbox instead of the default 100-email limit
+- Works with `--range` to count within a specific range of emails
+- Takes priority over all other output modes (`--filter`, `--json`, etc.)
+
+**Output format:** A plain integer on a single line, e.g. `42`
+
+---
+
+### `--index`
+
+Output the position numbers (1-based, newest-first) of emails in the checked set or matching filter criteria. Designed to identify which numbers to pass to `-n`.
+
+```bash
+# List positions of all emails in the default set (first 100)
+extractEmail --index
+
+# List positions of emails with "Invoice" in subject
+extractEmail --index subject="Invoice"
+
+# List positions of matching emails from the entire inbox
+extractEmail --index from="boss@work.com" all
+
+# List positions of matching emails within a specific range
+extractEmail --index body="urgent" --range 100-200
+```
+
+**Behavior:**
+- Without filter criteria: outputs all positions in the checked set (e.g. `1,2,3,...,100`)
+- With filter criteria (`from=`, `subject=`, `body=`, `attachment=`): outputs only the positions of matching emails
+- Output is a comma-separated list of integers on a single line
+- Append `all` as a positional argument to scan the entire inbox instead of the default 100-email limit
+- Works with `--range` to list positions within a specific range of emails
+- Position numbers match those used by `-n` — Email #1 is the most recent
+
+**Output format:** A comma-separated list of integers, e.g. `4,60` (or `1,2,3,...,100` without filters)
+
+**Output when no matches:** An empty line
+
+**Use Cases:**
+- Preview which email numbers match a filter before fetching with `-n`
+- Build scripts that loop over matching emails by number
 
 ---
 

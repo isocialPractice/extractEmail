@@ -6,6 +6,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0]
+
+### Added
+
+- `--stop` option to halt processing after the first matching email is found
+- `--count` option to output the total number of matching emails without processing them
+- `--match` option to filter emails by a pattern and output only those that match
+- `--index` option to target a specific email by its index position
+- New `helpers/emailChain.mjs` helper for parsing and working with email chain/thread data
+- Helper variable support in `extractEmailTasks/verbose.js.template` for use in task configuration
+
+### Changed
+
+- Improved `helpers/narrowRequestedData.js` and `helpers/filterHelper.mjs` for more accurate narrowing and filtering of email data
+
 ## [2.5.0]
 
 ### Added

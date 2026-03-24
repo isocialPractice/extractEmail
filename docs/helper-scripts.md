@@ -104,7 +104,7 @@ import { extractDateRangeFromText } from './helpers/filterHelper.mjs';
 
 // "after <date>" / "since <date>" → start to today
 const range = extractDateRangeFromText(
-  "Has Howard gotten any fuel after 2/01? I need to see the gallons."
+  "Has John gotten any product after 2/01? I need to see the accounts."
 );
 // range.start  => Date: Feb 1 2026
 // range.end    => Date: today (end of day)

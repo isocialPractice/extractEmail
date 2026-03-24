@@ -32,6 +32,14 @@
 ### Major Updates Under Consideration
 
 - [ ] Port to TypeScript
+- [ ] **`raw-data` narrowTypeBy — LLM integration**: implement Python `llm` tool integration
+  (new dependency) so `narrowTypeBy = "raw-data:boolean"` can pipe the email body/chain
+  context through `llm` to derive a reliable yes/no answer, and `raw-data:<file.ext>` can
+  use `llm` for intelligent content extraction before populating the `??RAW_DATA` block.
+- [ ] **`set-schedule` narrowTypeBy — `--schedule` option**: add a `--schedule` flag that
+  checks or retrieves data from a linked email scheduler or scheduling app compatible with
+  this tool; wire into the `narrowTypeBy = "set-schedule"` path in task files so scheduled
+  send dates can be resolved automatically.
 
 ## Improve Upon Current Features
 

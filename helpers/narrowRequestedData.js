@@ -16,6 +16,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join as pathJoin, resolve as pathResolve, isAbsolute as pathIsAbsolute, dirname, resolve, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
+import { classifyAndNarrowChain } from './emailChain.mjs';
 
 // ---------------------------------------------
 // A. WORD-TO-NUMBER MAP
@@ -194,6 +195,29 @@ function extractDateRange(rawText, today = new Date()) {
       end:   normaliseDate(explicitMatch[2]),
       description: 'explicit range',
     };
+  }
+
+  // Bare date range (no "from"/"between" prefix): "MM/DD/YYYY to MM/DD/YYYY"
+  const bareRange = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+to\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i;
+  const bareMatch = text.match(bareRange);
+  if (bareMatch) {
+    return {
+      start: normaliseDate(bareMatch[1]),
+      end:   normaliseDate(bareMatch[2]),
+      description: 'explicit range',
+    };
+  }
+
+  // Compact range: "MM/DD-M/DD" (slash-dates joined by a single hyphen, no year component)
+  // e.g. "02/01-3/23" means "from 02/01 to 03/23", years inferred from today
+  const compactRange = /(\d{1,2}\/\d{1,2})-(\d{1,2}\/\d{1,2})(?![\d\/])/;
+  const compactMatch = text.match(compactRange);
+  if (compactMatch) {
+    const start = parseShortDate(compactMatch[1], today);
+    const end   = parseShortDate(compactMatch[2], today);
+    if (start && end) {
+      return { start, end, description: 'compact range' };
+    }
   }
 
   // Single explicit month/year: "for March 2026" / "for Q1 2025"
@@ -596,7 +620,7 @@ function resolveDocument(documentType, mapConfig) {
   
   for (const doc of mapConfig.documents) {
     // Check if document name matches (indexOf match)
-    if (documentType && documentType.toLowerCase().includes(doc.name.toLowerCase())) {
+    if (doc.name === '*' || (documentType && documentType.toLowerCase().includes(doc.name.toLowerCase()))) {
       return {
         name: doc.name,
         folder: doc.folder || null,
@@ -677,9 +701,12 @@ function resolveRecipient(recipient, mapConfig, taskMapData) {
  *   - projectRoot: project root directory for resolving relative paths
  */
 function parseEmailTask(messageText, referenceDate = new Date(), options = {}) {
-  const documentType = detectDocumentType(messageText);
-  const dateRange    = extractDateRange(messageText, referenceDate);
-  let recipient      = extractRecipient(messageText);
+  // Pre-process: chain-aware narrowing (combines dominant-type segments into one body)
+  const processedText = classifyAndNarrowChain(messageText);
+
+  const documentType = detectDocumentType(processedText);
+  const dateRange    = extractDateRange(processedText, referenceDate);
+  let recipient      = extractRecipient(processedText);
 
   // Load map config if provided
   let mapConfig = options.mapConfig;

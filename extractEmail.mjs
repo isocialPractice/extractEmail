@@ -172,8 +172,8 @@ function parseRangeArg(rangeStr) {
 }
 
 /**
- * Parse special flags (--config, --test, --task, --output-folder, --number, --range, --full-body, --html, --json, --attachment-download, --filter, --filter:bool, --move) from arguments.
- * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, emailRange: {start:number,end:number}|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, filterMode: boolean, filterBoolMode: boolean, fromFilter: string|null, subjectFilter: string|null, bodyFilter: string|null, attachmentFilter: boolean, moveFolder: string|null, checkFolder: string|null, filteredArgs: string[] }}
+ * Parse special flags (--config, --test, --task, --output-folder, --number, --range, --full-body, --html, --json, --attachment-download, --filter, --filter:bool, --move, --stop, --count, --match, --index) from arguments.
+ * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, emailRange: {start:number,end:number}|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, filterMode: boolean, filterBoolMode: boolean, fromFilter: string|null, subjectFilter: string|null, bodyFilter: string|null, attachmentFilter: boolean, moveFolder: string|null, checkFolder: string|null, stopAfter: number|null, countMode: boolean, matchMode: boolean, matchAfter: number|null, indexMode: boolean, filteredArgs: string[] }}
  */
 function parseSpecialArgs() {
   const args = process.argv.slice(2);
@@ -195,6 +195,11 @@ function parseSpecialArgs() {
   let attachmentFilter = false;
   let moveFolder = null;
   let checkFolder = null;
+  let stopAfter = null;
+  let countMode = false;
+  let matchMode = false;
+  let matchAfter = null;
+  let indexMode = false;
   const ignoreRules = [];
   const filteredArgs = [];
 
@@ -269,6 +274,38 @@ function parseSpecialArgs() {
       checkFolder = arg.substring('--check='.length);
     } else if (arg === '--test') {
       testMode = true;
+    } else if (arg === '--count') {
+      countMode = true;
+    } else if (arg === '--stop') {
+      // Optional numeric argument: --stop 3 or --stop (defaults to 1)
+      if (i + 1 < args.length && /^\d+$/.test(args[i + 1])) {
+        stopAfter = parseInt(args[++i], 10);
+        if (stopAfter < 1) throw new Error('--stop value must be >= 1');
+      } else {
+        stopAfter = 1;
+      }
+    } else if (arg.startsWith('--stop=')) {
+      const stopVal = arg.substring('--stop='.length);
+      if (!/^\d+$/.test(stopVal)) throw new Error(`Invalid --stop value: "${stopVal}". Expected a positive integer.`);
+      stopAfter = parseInt(stopVal, 10);
+      if (stopAfter < 1) throw new Error('--stop value must be >= 1');
+    } else if (arg === '--match') {
+      matchMode = true;
+      // Optional numeric argument: --match 3 or --match (defaults to 1)
+      if (i + 1 < args.length && /^\d+$/.test(args[i + 1])) {
+        matchAfter = parseInt(args[++i], 10);
+        if (matchAfter < 1) throw new Error('--match value must be >= 1');
+      } else {
+        matchAfter = 1;
+      }
+    } else if (arg.startsWith('--match=')) {
+      const matchVal = arg.substring('--match='.length);
+      if (!/^\d+$/.test(matchVal)) throw new Error(`Invalid --match value: "${matchVal}". Expected a positive integer.`);
+      matchMode = true;
+      matchAfter = parseInt(matchVal, 10);
+      if (matchAfter < 1) throw new Error('--match value must be >= 1');
+    } else if (arg === '--index') {
+      indexMode = true;
     } else if (arg === '--ignore' || arg === '-i') {
       if (i + 1 >= args.length) throw new Error('Missing value for -i/--ignore');
       const ignoreVal = args[++i];
@@ -278,7 +315,7 @@ function parseSpecialArgs() {
     }
   }
 
-  return { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, ignoreRules, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, stopAfter, countMode, matchMode, matchAfter, indexMode, ignoreRules, filteredArgs };
 }
 
 /**
@@ -431,6 +468,47 @@ const help = `
                         Example: extractEmail --filter:bool body="urgent" 50
                         Example: extractEmail --filter:bool subject="Invoice" from="billing@"
 
+  --stop [N]            Stop processing after N emails (standard mode) or N matching emails
+                        (filter mode: -a, --filter, --move, --range with filters)
+                        N is optional — when omitted, defaults to 1 (stop at first email/match)
+                        Example: extractEmail --stop subject 50
+                        Example: extractEmail --stop 3 subject 50
+                        Example: extractEmail --filter subject="Invoice" --stop 2
+                        Example: extractEmail --stop=5 all 100
+
+  --match [N]           Find and output first N emails matching filter criteria in normal format
+                        Like --filter but outputs in full email block format (not summary)
+                        N is optional — when omitted, defaults to 1 (output first matching email)
+                        Without filter criteria, outputs first N emails (same as --stop N)
+                        Append "all" to search across every email (not just the default 100)
+                        Example: extractEmail --match
+                        Example: extractEmail --filter body="pattern" --match 3
+                        Example: extractEmail --filter body="pattern" --match 2 all
+                        Example: extractEmail --filter body="pattern" --match 3 --range 100-200
+                        Example: extractEmail --filter body="pattern" --match 3 20 --task=taskName
+
+  --count               Count the number of emails in the checked set or matching filters
+                        Outputs a single integer; no other output is produced
+                        Works with filter arguments (from=, subject=, body=, attachment=)
+                        Works with --range to count within a specific range of emails
+                        Append "all" to count across every email (not just the default 100)
+                        Example: extractEmail --count
+                        Example: extractEmail --count subject="Invoice"
+                        Example: extractEmail --count from="boss@" all
+                        Example: extractEmail --count body="urgent" --range 100-200
+
+  --index               Output position numbers of emails in the checked set or matching filters
+                        Useful to identify which -n number to pass in a follow-up call
+                        Without filters: outputs all positions (e.g. 1,2,3,...,100)
+                        With filters: outputs only positions of matching emails
+                        Works with filter arguments (from=, subject=, body=, attachment=)
+                        Works with --range to list positions within a specific range
+                        Append "all" to index across every email (not just the default 100)
+                        Example: extractEmail --index
+                        Example: extractEmail --index subject="Invoice"
+                        Example: extractEmail --index from="boss@" all
+                        Example: extractEmail --index body="urgent" --range 100-200
+
  Filter Arguments (used with -a or --filter):
   from="email@domain"   Filter by sender email (partial match, case-insensitive)
   subject="pattern"     Filter by subject text (partial match, case-insensitive)
@@ -479,11 +557,26 @@ const help = `
   extractEmail --check "Sent" subject 20          Extract subjects from last 20 emails in Sent folder
   extractEmail --check "Sent" --range 10-20       Get emails #10-20 from Sent folder with full body
   extractEmail --check "Archive" --filter body="invoice"  Find invoice emails in Archive folder
+  extractEmail --stop subject 50              Stop after first email processed
+  extractEmail --stop 3 subject 50            Stop after processing 3 emails
+  extractEmail --filter subject="Invoice" --stop 2  Find first 2 matching Invoice emails
+  extractEmail --count                               Count emails in default set (100)
+  extractEmail --count subject="Invoice"             Count emails with "Invoice" in subject
+  extractEmail --count from="boss@" all              Count all matching emails across entire inbox
+  extractEmail --count body="urgent" --range 100-200 Count matching emails within range 100-200
+  extractEmail --index                               List positions of all emails in default set
+  extractEmail --index subject="Invoice"             List positions of emails with "Invoice" in subject
+  extractEmail --index from="boss@" all              List positions of matching emails across entire inbox
+  extractEmail --index body="urgent" --range 100-200 List positions of matching emails in range 100-200
+  extractEmail --match                               Output first matching email (normal format)
+  extractEmail --filter body="pattern" --match 3     Output first 3 matching emails (normal format)
+  extractEmail --filter body="pattern" --match 2 all Search all emails, output first 2 matches
+  extractEmail --filter body="pattern" --match 3 --range 100-200  Match within range, output 3
 
  Task Sets:`;
 
-// Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool) and get remaining args.
-const { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, ignoreRules, filteredArgs } = parseSpecialArgs();
+// Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool, --stop, --match) and get remaining args.
+const { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, stopAfter, countMode, matchMode, matchAfter, indexMode, ignoreRules, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -1576,7 +1669,22 @@ async function extractEmail() {
         imapModule = imaps.default || imaps;
         configEmail = await loadConfig(configName);
       }
-      const connection = await imapModule.connect(configEmail);
+      // Retry connect — first attempt can fail with ConnectionTimeoutError on idle/NAT reset.
+      let connection;
+      {
+        const MAX_RETRIES = 3;
+        for (let _attempt = 1; _attempt <= MAX_RETRIES; _attempt++) {
+          try {
+            connection = await imapModule.connect(configEmail);
+            break;
+          } catch (err) {
+            const isRetryable = err.message && /timeout/i.test(err.message);
+            if (!isRetryable || _attempt === MAX_RETRIES) throw err;
+            process.stderr.write(`[extractEmail] connect attempt ${_attempt} timed out, retrying...\n`);
+            await new Promise(r => setTimeout(r, 800 * _attempt));
+          }
+        }
+      }
       if (!testMode) startMonitor();
       await connection.openBox('INBOX');
 
@@ -1629,6 +1737,134 @@ async function extractEmail() {
         const flags = msg.attributes.flags || [];
         return !flags.some(f => /^[\\$]sent$/i.test(f));
       });
+
+      // Handle --count mode: output integer count of emails in set or matching filters.
+      if (countMode) {
+        const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const countAll = nonNumericArgs.length > 0 && nonNumericArgs[0] === 'all';
+        let countMessages;
+
+        if (emailRange !== null) {
+          const { start } = emailRange;
+          const end = emailRange.end !== null ? emailRange.end : messages.length;
+          if (start > messages.length) {
+            console.log('0');
+            stop();
+            await connection.end();
+            return;
+          }
+          const clampedEnd = Math.min(end, messages.length);
+          countMessages = messages.slice(start - 1, clampedEnd);
+        } else {
+          const effectiveCount = countAll ? messages.length : count;
+          countMessages = messages.slice(0, effectiveCount);
+        }
+
+        if (!hasFilterCriteria) {
+          console.log(String(countMessages.length));
+        } else {
+          let matchCount = 0;
+          for (const msg of countMessages) {
+            ping();
+            const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
+            let subject = headersPart.subject || '';
+            if (Array.isArray(subject)) subject = subject.join(' ');
+
+            let emailBody = null;
+            if (bodyFilter) {
+              const struct = msg.attributes.struct;
+              const textPart = findTextPart(struct);
+              const htmlPart = findHtmlPart(struct);
+              if (htmlPart) {
+                try {
+                  const partData = await connection.getPartData(msg, htmlPart);
+                  const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+                  emailBody = sanitizeHtml(htmlContent);
+                } catch (err) { /* fall through to text part */ }
+              }
+              if (!emailBody && textPart) {
+                try {
+                  const partData = await connection.getPartData(msg, textPart);
+                  emailBody = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+                } catch (err) { /* fall through */ }
+              }
+            }
+
+            const hasAttachment = attachmentFilter ? await getAttachmentSummaryFromMessage(msg, connection) : false;
+            if (matchesFilters(headersPart, subject, hasAttachment, emailBody)) matchCount++;
+          }
+          console.log(String(matchCount));
+        }
+
+        stop();
+        await connection.end();
+        return;
+      }
+
+      // Handle --index mode: output position numbers of emails in set or matching filters.
+      if (indexMode) {
+        const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const indexAll = nonNumericArgs.length > 0 && nonNumericArgs[0] === 'all';
+        let indexMessages;
+
+        if (emailRange !== null) {
+          const { start } = emailRange;
+          const end = emailRange.end !== null ? emailRange.end : messages.length;
+          if (start > messages.length) {
+            console.log('');
+            stop();
+            await connection.end();
+            return;
+          }
+          const clampedEnd = Math.min(end, messages.length);
+          indexMessages = messages.slice(start - 1, clampedEnd).map((msg, i) => ({ msg, pos: start + i }));
+        } else {
+          const effectiveCount = indexAll ? messages.length : count;
+          indexMessages = messages.slice(0, effectiveCount).map((msg, i) => ({ msg, pos: i + 1 }));
+        }
+
+        if (!hasFilterCriteria) {
+          console.log(indexMessages.map(({ pos }) => pos).join(','));
+        } else {
+          const matchPositions = [];
+          for (const { msg, pos } of indexMessages) {
+            ping();
+            const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
+            let subject = headersPart.subject || '';
+            if (Array.isArray(subject)) subject = subject.join(' ');
+
+            let emailBody = null;
+            if (bodyFilter) {
+              const struct = msg.attributes.struct;
+              const textPart = findTextPart(struct);
+              const htmlPart = findHtmlPart(struct);
+              if (htmlPart) {
+                try {
+                  const partData = await connection.getPartData(msg, htmlPart);
+                  const htmlContent = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+                  emailBody = sanitizeHtml(htmlContent);
+                } catch (err) { /* fall through to text part */ }
+              }
+              if (!emailBody && textPart) {
+                try {
+                  const partData = await connection.getPartData(msg, textPart);
+                  emailBody = Buffer.isBuffer(partData) ? partData.toString('utf8') : String(partData || '');
+                } catch (err) { /* fall through */ }
+              }
+            }
+
+            const hasAttachment = attachmentFilter ? await getAttachmentSummaryFromMessage(msg, connection) : false;
+            if (matchesFilters(headersPart, subject, hasAttachment, emailBody)) {
+              matchPositions.push(pos);
+            }
+          }
+          console.log(matchPositions.join(','));
+        }
+
+        stop();
+        await connection.end();
+        return;
+      }
 
       // Handle specific email number request
       if (emailNumber !== null) {
@@ -1776,8 +2012,10 @@ async function extractEmail() {
         const rangeMessages = messages.slice(start - 1, clampedEnd);
 
         const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
-        const useFilters = (attachmentDownload || filterMode || filterBoolMode || moveFolder) && hasFilterCriteria;
+        const useFilters = (attachmentDownload || filterMode || filterBoolMode || moveFolder) && hasFilterCriteria && !matchMode;
         let foundMatch = false;
+        let rangeStopCount = 0;
+        let rangeMatchCount = 0;
 
         for (const [i, msg] of rangeMessages.entries()) {
           ping();
@@ -1846,9 +2084,9 @@ async function extractEmail() {
           currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
           currentAttachmentSummary = filterIgnoredAttachmentSummary(currentAttachmentSummary);
 
-          // Implicit filtering: criteria present but no explicit mode flag (-a/--filter/--filter:bool).
-          // Skips non-matching emails but shows full output for matches (e.g. --range 15-20 body="text").
-          if (hasFilterCriteria && !filterMode && !filterBoolMode && !attachmentDownload) {
+          // Implicit filtering: criteria present but not in an explicit filter/download/move mode
+          // (covers both bare filter criteria with --range, and --match mode with any filter criteria).
+          if (hasFilterCriteria && !useFilters) {
             const emailBodyForFilter = typeof body === 'string' ? body : '';
             if (!matchesFilters(headersPart, subject, currentAttachmentSummary, emailBodyForFilter)) continue;
             foundMatch = true;
@@ -1889,7 +2127,7 @@ async function extractEmail() {
               console.log(`Moved email #${emailNum} to "${moveFolder}": "${subject}"`);
             }
 
-            if (attachmentFilter) break;
+            if (attachmentFilter || (stopAfter !== null && ++rangeStopCount >= stopAfter)) break;
             continue;
           }
 
@@ -1910,8 +2148,13 @@ async function extractEmail() {
             await downloadAttachments(connection, msg, headersPart, downloadDir);
           }
 
-          // For attachment=true implicit filter, stop after first matching email is output.
-          if (hasFilterCriteria && !filterMode && !filterBoolMode && !attachmentDownload && attachmentFilter) break;
+          // For attachment=true implicit filter or --stop limit, stop after match is output.
+          ++rangeStopCount;
+          if ((hasFilterCriteria && !filterMode && !filterBoolMode && !attachmentDownload && attachmentFilter) ||
+              (stopAfter !== null && rangeStopCount >= stopAfter)) break;
+
+          // --match: stop after N matching emails have been output.
+          if (matchMode && ++rangeMatchCount >= matchAfter) break;
         }
 
         // End-of-range responses for filter modes.
@@ -1939,8 +2182,9 @@ async function extractEmail() {
       // -a/--attachment-download mode downloads attachments from matching emails.
       // --move mode moves matching emails to the specified IMAP folder.
       const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
-      if ((attachmentDownload || filterMode || moveFolder) && hasFilterCriteria && !emailNumber && !taskName) {
+      if ((attachmentDownload || filterMode || moveFolder) && hasFilterCriteria && !emailNumber && !taskName && !matchMode) {
         let foundMatch = false;
+        let filterStopCount = 0;
         for (const [i, msg] of messages.slice(0, count).entries()) {
           ping();
           const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
@@ -2004,8 +2248,9 @@ async function extractEmail() {
               console.log(`Moved email #${i + 1} to "${moveFolder}": "${subject}"`);
             }
             
-            // If attachment=true filter, only process first match
-            if (attachmentFilter) break;
+            filterStopCount++;
+            // If attachment=true filter or --stop limit reached, stop after this match
+            if (attachmentFilter || (stopAfter !== null && filterStopCount >= stopAfter)) break;
           }
         }
         
@@ -2027,11 +2272,18 @@ async function extractEmail() {
       }
 
       // Take first N messages (already sorted newest-first).
-      const lastMessages = messages.slice(0, count);
+      // --match with "all" keyword searches across every message.
+      const matchAll = matchMode && nonNumericArgs.some(a => a === 'all');
+      const lastMessages = matchAll ? messages : messages.slice(0, count);
+
+      if (stopAfter !== null) process.stderr.write(`\n[DEBUG] general loop: messages=${messages.length}, count=${count}, lastMessages=${lastMessages.length}, stopAfter=${stopAfter}\n`);
 
       emailCount = 0;
+      let generalStopCount = 0;
+      let generalMatchCount = 0;
 
       for (const [i, msg] of lastMessages.entries()) {
+        if (stopAfter !== null) process.stderr.write(`[DEBUG] loop iteration i=${i} (email #${i+1})\n`);
         ping();
         const headersPart = msg.parts.find(p => p.which.includes('HEADER'))?.body || {};
         let subject = headersPart.subject || '';
@@ -2106,12 +2358,36 @@ async function extractEmail() {
         currentAttachmentSummary = await getAttachmentSummaryFromMessage(msg, connection);
         currentAttachmentSummary = filterIgnoredAttachmentSummary(currentAttachmentSummary);
 
+        // --match: skip emails that do not satisfy filter criteria, then stop after N matches.
+        if (matchMode && hasFilterCriteria) {
+          const emailBodyForFilter = typeof body === 'string' ? body : '';
+          if (!matchesFilters(headersPart, subject, currentAttachmentSummary, emailBodyForFilter)) continue;
+        }
+
+        // Sync emailCount to loop index so the "=== Email #N ===" header shows inbox position.
+        emailCount = i;
+
         // If option, else handle task.
         if (optionCall == 1 && !taskName) {
           handleOption(extract, headersPart, subject, body);
         } else {
+          if (stopAfter !== null) process.stderr.write(`[DEBUG] calling handleTask for email #${i+1}\n`);
           await handleTask(extract, headersPart, subject, body, connection, msg, !!taskName);
+          if (stopAfter !== null) process.stderr.write(`[DEBUG] handleTask returned for email #${i+1}\n`);
         }
+
+        // Stop after --stop N emails have been processed.
+        generalStopCount++;
+        if (stopAfter !== null) process.stderr.write(`[DEBUG] generalStopCount=${generalStopCount}, stopAfter=${stopAfter}, breaking=${generalStopCount >= stopAfter}\n`);
+        if (stopAfter !== null && generalStopCount >= stopAfter) break;
+
+        // Stop after --match N matching emails have been output.
+        if (matchMode && ++generalMatchCount >= matchAfter) break;
+      }
+
+      // --match with filter criteria: report if nothing matched.
+      if (matchMode && hasFilterCriteria && generalMatchCount === 0) {
+        console.log('No emails found matching the specified filters.');
       }
 
       // Output JSON if in JSON mode

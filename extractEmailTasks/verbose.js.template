@@ -30,6 +30,22 @@ const taskDoes = [
 ];
 
 /*******************************************************************************
+ * NARROW TYPE CONFIGURATION
+ *
+ * Controls how the run-script task narrows / processes extracted email data.
+ * Pass this value to your script via "{narrowTypeBy}" in scriptArgs.
+ *
+ * Predefined values:
+ *   "date-range"           — Extract date range and match files by date (default behaviour)
+ *   "file-name:<fileName>" — Match by a specific filename, e.g. "file-name:report.pdf"
+ *   "raw-data:<type>"      — Output a ??RAW_DATA block; <type> is:
+ *                             "boolean" (yes/no derived from body) or
+ *                             a file path whose content to echo
+ *   "set-schedule"         — TODO: schedule-based narrowing (not yet implemented)
+ ******************************************************************************/
+const narrowTypeBy = "date-range";
+
+/*******************************************************************************
  * FILTER CONFIGURATION
  *
  * Set filters to process only specific emails.
@@ -68,12 +84,14 @@ const SCRIPT_CONFIG = {
   scriptPath: "scripts/example.sh",
 
   // Arguments to pass to script (can use template variables)
-  // Available variables: {from}, {subject}, {body}, {date}, {attachmentCount}, {mapConfig}
-  // {mapConfig} resolves to FILTER_CONFIG.mapRequestedData value (empty string if not set)
+  // Available variables: {from}, {subject}, {body}, {date}, {attachmentCount}, {mapConfig}, {narrowTypeBy}
+  // {mapConfig}      resolves to FILTER_CONFIG.mapRequestedData value (empty string if not set)
+  // {narrowTypeBy}   resolves to narrowTypeBy value (defaults to 'date-range' if not set)
   // Note: Don't add quotes here - they will be handled properly by the script runner
   scriptArgs: [
     "{body}",
-    "{mapConfig}"  // Required for narrowRequestedData helper with -m flag
+    "{mapConfig}",    // Required for narrowRequestedData helper with -m flag
+    "{narrowTypeBy}"  // Controls extraction mode; see NARROW TYPE CONFIGURATION above
   ],
 
   // Working directory for script execution (null = current directory)
@@ -209,9 +227,19 @@ async function runScriptTask(headersPart, subject, body, fullEmail, outputToTerm
     
     // Extract full body from parsed email (fullEmail.text has complete content)
     const fullBody = (fullEmail && fullEmail.text) ? fullEmail.text : body;
-    
+
+    // Chain-aware narrowing: for chained/forwarded emails, select the most relevant body
+    // segment based on FILTER_CONFIG.bodyPattern (requester identity) and narrowTypeBy mode.
+    // This ensures the BAT script receives the correct segment body directly.
+    const { extractBestBodyByTask } = await import('../helpers/emailChain.mjs');
+    const processedBody = extractBestBodyByTask(
+      fullBody,
+      FILTER_CONFIG.bodyPattern || null,
+      narrowTypeBy || 'date-range'
+    );
+
     // Normalize body to single line with \n markers (can be processed by sed/awk to restore newlines)
-    const normalizedBody = fullBody.replace(/\r?\n/g, '\\n');
+    const normalizedBody = processedBody.replace(/\r?\n/g, '\\n');
     
     // Get map config from FILTER_CONFIG (empty string if not set)
     const mapConfig = FILTER_CONFIG.mapRequestedData || '';
@@ -223,7 +251,8 @@ async function runScriptTask(headersPart, subject, body, fullEmail, outputToTerm
         .replace(/\{subject\}/g, subject)
         .replace(/\{body\}/g, normalizedBody)
         .replace(/\{date\}/g, headersPart.date || '')
-        .replace(/\{mapConfig\}/g, mapConfig);
+        .replace(/\{mapConfig\}/g, mapConfig)
+        .replace(/\{narrowTypeBy\}/g, narrowTypeBy || 'date-range');
       
       // Remove any template quotes that were in the config
       // This allows users to specify quotes in config if they want,

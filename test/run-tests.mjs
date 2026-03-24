@@ -706,6 +706,83 @@ async function testCheckOption() {
   assertContains(helpResult.stdout, '--check', 'Help documents --check option');
 }
 
+async function testStopOption() {
+  console.log('\n[Test Suite] --stop Option\n');
+
+  // Test: --stop alone limits standard extraction to 1 email
+  const stopAloneResult = await runCommand(['--stop', 'subject', '5']);
+  assertContains(stopAloneResult.stdout, 'Email #1', '--stop alone processes Email #1');
+  assertNotContains(stopAloneResult.stdout, 'Email #2', '--stop alone stops after 1 email');
+
+  // Test: --stop 2 limits standard extraction to 2 emails
+  const stop2Result = await runCommand(['--stop', '2', 'subject', '7']);
+  assertContains(stop2Result.stdout, 'Email #1', '--stop 2 processes Email #1');
+  assertContains(stop2Result.stdout, 'Email #2', '--stop 2 processes Email #2');
+  assertNotContains(stop2Result.stdout, 'Email #3', '--stop 2 stops before Email #3');
+
+  // Test: --stop=N equals-sign syntax
+  const stopEqResult = await runCommand(['--stop=1', 'subject', '7']);
+  assertContains(stopEqResult.stdout, 'Email #1', '--stop=1 processes Email #1');
+  assertNotContains(stopEqResult.stdout, 'Email #2', '--stop=1 stops after 1 email');
+
+  // Test: count BEFORE --stop (the canonical real-world usage)
+  // e.g. extractEmail --task=stop 7 --stop  (count=7, stopAfter=1)
+  const countBeforeStopResult = await runCommand(['subject', '7', '--stop']);
+  assertContains(countBeforeStopResult.stdout, 'Email #1', 'count before --stop: processes Email #1');
+  assertNotContains(countBeforeStopResult.stdout, 'Email #2', 'count before --stop: stops after 1 email');
+
+  // Test: --task + --stop — task runs on at most 1 email when --stop (N=1) is used
+  // mock emails sorted newest-first: Email #5 = uid=3 from user@messaging.com, subject "STOP"
+  // with --stop 1, we only reach Email #1 (not STOP email at #5)
+  const taskStop1Result = await runCommand(['--task=stop', '7', '--stop']);
+  // stop task only outputs when subject === "stop"; Email #1 subject is "Survey Response"
+  assertNotContains(taskStop1Result.stdout, 'user@messaging.com', '--task --stop 1 stops before STOP email');
+
+  // Test: --task + --stop 5 — reaches email #5 which IS the STOP email
+  const taskStop5Result = await runCommand(['--task=stop', '7', '--stop', '5']);
+  assertContains(taskStop5Result.stdout, 'user@messaging.com', '--task --stop 5 processes through STOP email at #5');
+
+  // Test: --task + --stop 4 — stops before email #5 (the STOP email)
+  const taskStop4Result = await runCommand(['--task=stop', '7', '--stop', '4']);
+  assertNotContains(taskStop4Result.stdout, 'user@messaging.com', '--task --stop 4 stops before STOP email at #5');
+
+  // Test: count BEFORE --stop N with task (real-world usage pattern)
+  // extractEmail --task=stop 7 --stop 5  → same as above
+  const taskCountBeforeStopResult = await runCommand(['--task=stop', '7', '--stop', '5']);
+  assertContains(taskCountBeforeStopResult.stdout, 'user@messaging.com', '--task count before --stop 5 finds STOP email');
+
+  // Test: --filter --stop 1 stops after first matching email
+  // from=example.com matches Email #1 (marketing@example.com) and Email #7 (sender1@example.com)
+  const filterStop1Result = await runCommand(['--filter', 'from=example.com', '--stop', '1']);
+  assertContains(filterStop1Result.stdout, 'Found matching email', '--filter --stop 1 finds a match');
+  // Should only find ONE match, not both
+  const matchCount1 = (filterStop1Result.stdout.match(/Found matching email/g) || []).length;
+  if (matchCount1 === 1) {
+    console.log('  ✓ --filter --stop 1 stops after first match');
+    passed++;
+  } else {
+    console.log('  ✗ --filter --stop 1 stops after first match');
+    console.log(`    Expected 1 match, got ${matchCount1}`);
+    failed++;
+  }
+
+  // Test: --filter --stop 2 finds both example.com matches
+  const filterStop2Result = await runCommand(['--filter', 'from=example.com', '--stop', '2']);
+  const matchCount2 = (filterStop2Result.stdout.match(/Found matching email/g) || []).length;
+  if (matchCount2 === 2) {
+    console.log('  ✓ --filter --stop 2 finds both matching emails');
+    passed++;
+  } else {
+    console.log('  ✗ --filter --stop 2 finds both matching emails');
+    console.log(`    Expected 2 matches, got ${matchCount2}`);
+    failed++;
+  }
+
+  // Test: --stop is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--stop', 'Help documents --stop option');
+}
+
 async function testMoveOption() {
   console.log('\n[Test Suite] --move Option\n');
 
@@ -745,6 +822,258 @@ async function testMoveOption() {
   assertContains(helpResult.stdout, '--move', 'Help documents --move option');
 }
 
+async function testCountOption() {
+  console.log('\n[Test Suite] --count Option\n');
+
+  // Test: --count alone outputs total email count (7 in mock)
+  const countResult = await runCommand(['--count']);
+  assertContains(countResult.stdout, '7', '--count outputs total email count');
+
+  // Test: --count with subject filter outputs matching count (1 email: "Invoice #12345")
+  const countSubjectResult = await runCommand(['--count', 'subject=Invoice']);
+  assertContains(countSubjectResult.stdout, '1', '--count with subject filter outputs matching count');
+
+  // Test: --count with from filter outputs matching count (2 emails from @example.com)
+  const countFromResult = await runCommand(['--count', 'from=example.com']);
+  assertContains(countFromResult.stdout, '2', '--count with from filter outputs matching count');
+
+  // Test: --count with no match outputs 0
+  const countNoMatchResult = await runCommand(['--count', 'subject=nonexistentxyz999']);
+  assertContains(countNoMatchResult.stdout, '0', '--count with no match outputs 0');
+
+  // Test: --count with explicit --filter flag also works
+  const countFilterResult = await runCommand(['--count', '--filter', 'subject=Invoice']);
+  assertContains(countFilterResult.stdout, '1', '--count with --filter flag and subject filter outputs count');
+
+  // Test: --count all scans full inbox (same as default when mock has 7 emails)
+  const countAllResult = await runCommand(['--count', 'from=example.com', 'all']);
+  assertContains(countAllResult.stdout, '2', '--count all outputs count across all emails');
+
+  // Test: --count with --range outputs count in range (3 emails in range 1-3)
+  const countRangeResult = await runCommand(['--count', '--range', '1-3']);
+  assertContains(countRangeResult.stdout, '3', '--count with --range outputs count in range');
+
+  // Test: --count with --range and filter counts only matching emails in range
+  // Range 1-7, from=example.com → Email #1 (marketing@example.com) and Email #7 (sender1@example.com)
+  const countRangeFilterResult = await runCommand(['--count', '--range', '1-7', 'from=example.com']);
+  assertContains(countRangeFilterResult.stdout, '2', '--count with --range and filter counts matching in range');
+
+  // Test: --count with --range start beyond total returns 0
+  const countRangeOverResult = await runCommand(['--count', '--range', '100-200']);
+  assertContains(countRangeOverResult.stdout, '0', '--count with out-of-bounds range outputs 0');
+
+  // Test: output is purely numeric (no labels)
+  const countOnlyResult = await runCommand(['--count']);
+  const trimmed = countOnlyResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (/^\d+$/.test(trimmed)) {
+    console.log('  ✓ --count output is purely numeric');
+    passed++;
+  } else {
+    console.log('  ✗ --count output is purely numeric');
+    console.log(`    Got: "${trimmed}"`);
+    failed++;
+  }
+
+  // Test: --count is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--count', 'Help documents --count option');
+}
+
+async function testMatchOption() {
+  console.log('\n[Test Suite] --match Option\n');
+
+  // Mock emails sorted newest-first:
+  // #1 marketing@example.com  "Survey Response"
+  // #2 survey@forms.com       "Survey Response"
+  // #3 support@helpdesk.com   "Re: Your support ticket #789"
+  // #4 billing@invoices.com   "Invoice #12345"         body: "invoice for this month"
+  // #5 user@messaging.com     "STOP"
+  // #6 noreply@company.com    "Monthly Report..."
+  // #7 sender1@example.com    "Welcome to the service"
+
+  // Test: --match alone (no filter) outputs first 1 email in normal block format
+  const matchAloneResult = await runCommand(['--match', 'all']);
+  assertContains(matchAloneResult.stdout, '=== Email #1 ===', '--match alone outputs Email #1 in block format');
+  assertNotContains(matchAloneResult.stdout, '=== Email #2 ===', '--match alone stops after 1 email');
+  assertNotContains(matchAloneResult.stdout, 'Found matching email', '--match alone uses normal output (not filter summary)');
+
+  // Test: --match=1 equals-sign syntax
+  const matchEqResult = await runCommand(['--match=1', 'all']);
+  assertContains(matchEqResult.stdout, '=== Email #1 ===', '--match=1 outputs Email #1');
+  assertNotContains(matchEqResult.stdout, '=== Email #2 ===', '--match=1 stops after 1 email');
+
+  // Test: --match 2 (no filter) outputs first 2 emails
+  const match2Result = await runCommand(['--match', '2', 'all']);
+  assertContains(match2Result.stdout, '=== Email #1 ===', '--match 2 outputs Email #1');
+  assertContains(match2Result.stdout, '=== Email #2 ===', '--match 2 outputs Email #2');
+  assertNotContains(match2Result.stdout, '=== Email #3 ===', '--match 2 stops after 2 emails');
+
+  // Test: --filter body=invoice --match outputs first matching email in normal format
+  // Email #4 has "invoice" in body → should appear as === Email #4 ===
+  const matchFilterResult = await runCommand(['--filter', 'body=invoice', '--match']);
+  assertContains(matchFilterResult.stdout, '=== Email #4 ===', '--match with body filter outputs matched email in block format');
+  assertContains(matchFilterResult.stdout, 'From:', '--match with filter shows From field');
+  assertContains(matchFilterResult.stdout, 'Subject:', '--match with filter shows Subject field');
+  assertNotContains(matchFilterResult.stdout, 'Found matching email', '--match with filter uses normal output (not filter summary)');
+  assertNotContains(matchFilterResult.stdout, '=== Email #1 ===', '--match with filter skips non-matching emails');
+
+  // Test: --filter from=example.com --match 2 outputs both matching emails in normal format
+  // Matching: #1 marketing@example.com, #7 sender1@example.com
+  const matchFrom2Result = await runCommand(['--filter', 'from=example.com', '--match', '2']);
+  assertContains(matchFrom2Result.stdout, '=== Email #1 ===', '--match 2 with from filter outputs first match (Email #1)');
+  assertContains(matchFrom2Result.stdout, '=== Email #7 ===', '--match 2 with from filter outputs second match (Email #7)');
+  assertNotContains(matchFrom2Result.stdout, 'Found matching email', '--match 2 with filter uses normal output');
+
+  // Test: --filter from=example.com --match 1 stops after first match
+  const matchFrom1Result = await runCommand(['--filter', 'from=example.com', '--match', '1']);
+  assertContains(matchFrom1Result.stdout, '=== Email #1 ===', '--match 1 with from filter outputs first match');
+  assertNotContains(matchFrom1Result.stdout, '=== Email #7 ===', '--match 1 with from filter stops after first match');
+
+  // Test: --filter from=example.com --match (default 1) — same as above
+  const matchFromDefaultResult = await runCommand(['--filter', 'from=example.com', '--match']);
+  assertContains(matchFromDefaultResult.stdout, '=== Email #1 ===', '--match (default) with from filter outputs first match');
+  assertNotContains(matchFromDefaultResult.stdout, '=== Email #7 ===', '--match (default) does not output second match');
+
+  // Test: --match with a count argument limits the search pool
+  // Get 3 emails, find first body=invoice match — Email #4 is outside first 3, so no match
+  const matchCountLimitResult = await runCommand(['--filter', 'body=invoice', '--match', '1', '3']);
+  assertNotContains(matchCountLimitResult.stdout, '=== Email #4 ===', '--match with count 3 does not find email outside pool');
+  assertContains(matchCountLimitResult.stdout, 'No emails found matching', '--match with limited count reports no match');
+
+  // Test: --filter body=invoice --match 1 with enough count finds the email
+  const matchWithCountResult = await runCommand(['--filter', 'body=invoice', '--match', '1', '10']);
+  assertContains(matchWithCountResult.stdout, '=== Email #4 ===', '--match 1 with count 10 finds Email #4');
+
+  // Test: --match with --range
+  // Range 3-5 includes #3(support), #4(invoice), #5(STOP) — first body=invoice match is #4
+  const matchRangeResult = await runCommand(['--filter', 'body=invoice', '--match', '--range', '3-5']);
+  assertContains(matchRangeResult.stdout, '=== Email #4 ===', '--match with --range finds matching email within range');
+  assertNotContains(matchRangeResult.stdout, 'Found matching email', '--match with --range uses normal output format');
+
+  // Test: --match is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--match', 'Help documents --match option');
+}
+
+async function testIndexOption() {
+  console.log('\n[Test Suite] --index Option\n');
+
+  // Mock emails sorted newest-first:
+  // #1 marketing@example.com  "Survey Response"
+  // #2 survey@forms.com       "Survey Response"
+  // #3 support@helpdesk.com   "Re: Your support ticket #789"
+  // #4 billing@invoices.com   "Invoice #12345"  body: "invoice for this month"
+  // #5 user@messaging.com     "STOP"
+  // #6 noreply@company.com    "Monthly Report..."
+  // #7 sender1@example.com    "Welcome to the service"
+
+  // Test: --index alone outputs all positions in default set (7 mock emails → 1,2,3,4,5,6,7)
+  const indexAllResult = await runCommand(['--index']);
+  const indexAllOut = indexAllResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexAllOut === '1,2,3,4,5,6,7') {
+    console.log('  ✓ --index alone outputs all positions');
+    passed++;
+  } else {
+    console.log('  ✗ --index alone outputs all positions');
+    console.log(`    Expected: "1,2,3,4,5,6,7"  Got: "${indexAllOut}"`);
+    failed++;
+  }
+
+  // Test: --index with from= filter outputs matching positions only
+  // from=example.com matches #1 (marketing@example.com) and #7 (sender1@example.com)
+  const indexFromResult = await runCommand(['--index', 'from=example.com']);
+  const indexFromOut = indexFromResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexFromOut === '1,7') {
+    console.log('  ✓ --index from= outputs correct matching positions');
+    passed++;
+  } else {
+    console.log('  ✗ --index from= outputs correct matching positions');
+    console.log(`    Expected: "1,7"  Got: "${indexFromOut}"`);
+    failed++;
+  }
+
+  // Test: --index with body= filter outputs position of matching email only
+  // body=invoice matches #4 (billing@invoices.com, "invoice for this month")
+  const indexBodyResult = await runCommand(['--index', 'body=invoice']);
+  const indexBodyOut = indexBodyResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexBodyOut === '4') {
+    console.log('  ✓ --index body= outputs correct matching position');
+    passed++;
+  } else {
+    console.log('  ✗ --index body= outputs correct matching position');
+    console.log(`    Expected: "4"  Got: "${indexBodyOut}"`);
+    failed++;
+  }
+
+  // Test: --index with "all" keyword scans full inbox (same result as default for 7-email mock)
+  const indexAllKeyResult = await runCommand(['--index', 'from=example.com', 'all']);
+  const indexAllKeyOut = indexAllKeyResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexAllKeyOut === '1,7') {
+    console.log('  ✓ --index with "all" keyword outputs correct positions');
+    passed++;
+  } else {
+    console.log('  ✗ --index with "all" keyword outputs correct positions');
+    console.log(`    Expected: "1,7"  Got: "${indexAllKeyOut}"`);
+    failed++;
+  }
+
+  // Test: --index with --range (no filter) outputs positions in range
+  // --range 3-5 → positions 3, 4, 5
+  const indexRangeResult = await runCommand(['--index', '--range', '3-5']);
+  const indexRangeOut = indexRangeResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexRangeOut === '3,4,5') {
+    console.log('  ✓ --index --range (no filter) outputs positions in range');
+    passed++;
+  } else {
+    console.log('  ✗ --index --range (no filter) outputs positions in range');
+    console.log(`    Expected: "3,4,5"  Got: "${indexRangeOut}"`);
+    failed++;
+  }
+
+  // Test: --index with --range and from= filter outputs matching positions within range
+  // Range 3-5 includes #3(support), #4(invoice/billing@invoices.com), #5(STOP)
+  // from=invoices.com matches only #4
+  const indexRangeFilterResult = await runCommand(['--index', '--range', '3-5', 'from=invoices.com']);
+  const indexRangeFilterOut = indexRangeFilterResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexRangeFilterOut === '4') {
+    console.log('  ✓ --index --range with filter outputs matching positions within range');
+    passed++;
+  } else {
+    console.log('  ✗ --index --range with filter outputs matching positions within range');
+    console.log(`    Expected: "4"  Got: "${indexRangeFilterOut}"`);
+    failed++;
+  }
+
+  // Test: --index with no-match filter outputs empty result
+  const indexNoMatchResult = await runCommand(['--index', 'from=nonexistent@nowhere.xyz']);
+  const indexNoMatchOut = indexNoMatchResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexNoMatchOut === '') {
+    console.log('  ✓ --index with no-match filter outputs empty result');
+    passed++;
+  } else {
+    console.log('  ✗ --index with no-match filter outputs empty result');
+    console.log(`    Expected: ""  Got: "${indexNoMatchOut}"`);
+    failed++;
+  }
+
+  // Test: --index with count limit respects the count
+  // --index 3 → only first 3 emails → positions 1,2,3
+  const indexCountResult = await runCommand(['--index', '3']);
+  const indexCountOut = indexCountResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexCountOut === '1,2,3') {
+    console.log('  ✓ --index with count limit outputs correct positions');
+    passed++;
+  } else {
+    console.log('  ✗ --index with count limit outputs correct positions');
+    console.log(`    Expected: "1,2,3"  Got: "${indexCountOut}"`);
+    failed++;
+  }
+
+  // Test: --index is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, '--index', 'Help documents --index option');
+}
+
 async function main() {
   console.log('========================================');
   console.log('  extractEmail Test Suite');
@@ -766,8 +1095,12 @@ async function main() {
     await testBodyFilter();
     await testFilterBoolMode();
     await testRangeOption();
+    await testStopOption();
     await testMoveOption();
     await testCheckOption();
+    await testCountOption();
+    await testMatchOption();
+    await testIndexOption();
   } catch (err) {
     console.error('\nTest runner error:', err);
     process.exit(1);

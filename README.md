@@ -136,6 +136,8 @@ If `--task` is provided, it looks for the task in the `tasksFolder` configured i
 | `-a, --attachment-download` | Download attachment(s) from email(s). Requires one of: `-n <num>`, `from="email@site.com"`, `subject="pattern"`, `body="text"`, or `attachment=true`. |
 | `--filter` | Find and display emails matching filter criteria (same filters as `-a`, but without downloading attachments). |
 | `--filter:bool` | Check if any email matches filter criteria, output `true` or `false`. Stops immediately on first match. Default checks 100 emails. |
+| `--count` | Output a single integer count of emails in the checked set or matching filter criteria. Works with `all` and `--range`. |
+| `--index` | Output comma-separated position numbers of emails in the checked set or matching filter criteria. Useful to identify which `-n` numbers to use. Works with `all` and `--range`. |
 | `--move <folder>` | Move emails matching filter criteria to a named IMAP folder. Verifies the folder exists; outputs an error if not found. Supports `[count]` and `--range`. |
 
 ### Filter Arguments
