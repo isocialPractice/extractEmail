@@ -31,6 +31,8 @@
  *   findBestSegment(segments, opts?)                  → ChainSegment | null
  *   extractBestBody(body, opts?)                      → string
  *   extractBestBodyByTask(body, pattern, type, opts?) → string  ← task-aware entry point
+ *   isThankYouSegment(body)                           → boolean
+ *   isThankYouChain(rawBody)                          → boolean
  *   SEGMENT_TYPES                                     — named type constants
  *   classifySegment(body)                             → string
  *   classifyChain(segments)                           → { counts, dominantType, classified }
@@ -575,6 +577,171 @@ function removeCidLines(text) {
     .split(/\r?\n/)
     .filter(line => !/^\s*\[cid:[^\]]*\]\s*$/.test(line))
     .join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// THANK-YOU DETECTION
+// ---------------------------------------------------------------------------
+
+/**
+ * Phrases that indicate a simple acknowledgment / thank-you email.
+ * @type {RegExp[]}
+ */
+const THANK_YOU_PHRASES = [
+  /\bthank\s+you\b/i,
+  /\bthanks\b/i,
+  /\bthank\s+so\s+much\b/i,
+  /\breceived[.,]?\s*thanks\b/i,
+  /\bgot\s+it[.,]?\s*thanks\b/i,
+  /\bgreatly\s+appreciate\b/i,
+  /\bmuch\s+appreciated\b/i,
+  /\bappreciate\s+it\b/i,
+];
+
+/**
+ * Patterns that DISQUALIFY a segment from being a simple thank-you —
+ * the sender is making a follow-up request or asking for more.
+ * @type {RegExp[]}
+ */
+const THANK_YOU_DISQUALIFIERS = [
+  /\bcan\s+you\s+(?:also\s+)?(?:send|forward|provide|email)\b/i,
+  /\bcould\s+you\b/i,
+  /\bwould\s+you\b/i,
+  /\bplease\s+send\b/i,
+  /\bi\s+need\b/i,
+  /\balso\s+send\b/i,
+  /\bsend\s+(?:me|us|the)\b/i,
+  /\bforward\s+(?:me|us|the)\b/i,
+  /\bfrom\s+last\s+week\b/i,
+  /\bcan\s+you\s+also\b/i,
+];
+
+/**
+ * Extract the meaningful message content from a segment body by stripping
+ * CID image references, blank lines, and trailing signature/contact blocks.
+ *
+ * @param {string} body
+ * @returns {string}
+ */
+function extractMessageContent(body) {
+  if (!body) return '';
+
+  const lines = body.split(/\r?\n/);
+  const cleaned = [];
+  let signatureStart = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+
+    // Skip cid image reference lines
+    if (/^\[cid:[^\]]*\]$/.test(trimmed)) continue;
+
+    // Detect signature start: a standalone name-like line followed by
+    // address or phone patterns within the next few lines
+    if (
+      signatureStart === -1 &&
+      trimmed &&
+      /^[A-Z][a-zA-Z'.]+(?:\s+[A-Z][a-zA-Z'.]+){0,4}$/.test(trimmed)
+    ) {
+      // Look ahead for contact/address patterns
+      let looksLikeSignature = false;
+      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+        const ahead = lines[j].trim();
+        if (!ahead) continue;
+        if (
+          /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(ahead) ||
+          /\b\d{1,5}\s+\w+\s+(st|street|ave|avenue|rd|road|blvd|hwy|dr|drive|ln|lane|way)\b/i.test(ahead) ||
+          /\b[A-Z][a-z]+,?\s+[A-Z]{2}\.?\s+\d{5}\b/.test(ahead)
+        ) {
+          looksLikeSignature = true;
+          break;
+        }
+      }
+      if (looksLikeSignature) {
+        signatureStart = i;
+        break;
+      }
+    }
+
+    cleaned.push(lines[i]);
+  }
+
+  const result = (signatureStart >= 0 ? cleaned : lines.filter(l => !/^\s*\[cid:[^\]]*\]\s*$/.test(l)));
+  return result.join('\n').trim();
+}
+
+/**
+ * Check if a segment body is a simple "thank you" acknowledgment.
+ *
+ * A segment qualifies when:
+ *   1. Its meaningful content (after stripping signatures and CID refs) contains
+ *      at least one THANK_YOU_PHRASES match.
+ *   2. None of the THANK_YOU_DISQUALIFIERS match (no follow-up request).
+ *   3. The meaningful content is short — at most 3 sentences.
+ *
+ * @param {string} body  Segment body text (may include signature/CID lines).
+ * @returns {boolean}
+ */
+export function isThankYouSegment(body) {
+  if (!body || typeof body !== 'string') return false;
+
+  const content = extractMessageContent(body);
+  if (!content) return false;
+
+  // Strip blank lines for sentence analysis
+  const nonBlank = content.split(/\r?\n/).filter(l => l.trim()).join(' ').trim();
+  if (!nonBlank) return false;
+
+  // Must contain at least one thank-you phrase
+  const hasThankYou = THANK_YOU_PHRASES.some(re => re.test(nonBlank));
+  if (!hasThankYou) return false;
+
+  // Must NOT contain a follow-up request
+  const hasRequest = THANK_YOU_DISQUALIFIERS.some(re => re.test(nonBlank));
+  if (hasRequest) return false;
+
+  // Must be short: at most 3 sentences (greeting + thanks + farewell)
+  const sentences = nonBlank
+    .split(/[.!?]+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  return sentences.length <= 3;
+}
+
+/**
+ * Determine whether the most recent message in a (possibly chained) email
+ * is a simple "thank you" acknowledgment.
+ *
+ * Algorithm:
+ *   1. If the body is not a chain, test it directly with isThankYouSegment.
+ *   2. Otherwise split the chain and inspect the first non-empty segment
+ *      (index 0, or index 1 when 0 is an empty forward wrapper).
+ *
+ * @param {string} rawBody  Full email body (possibly chained).
+ * @returns {boolean}
+ */
+export function isThankYouChain(rawBody) {
+  if (!rawBody || typeof rawBody !== 'string') return false;
+
+  if (!isChainedEmail(rawBody)) {
+    return isThankYouSegment(rawBody);
+  }
+
+  const segments = splitChain(rawBody);
+  if (segments.length === 0) return false;
+
+  // Check the most recent non-empty segment (index 0 may be empty for forwards)
+  for (const seg of segments) {
+    const cleaned = removeCidLines(seg.body).trim();
+    if (cleaned) {
+      return isThankYouSegment(seg.body);
+    }
+    // Only look at the first two segments for "most recent"
+    if (seg.index >= 1) break;
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------

@@ -46,6 +46,23 @@ const taskDoes = [
 const narrowTypeBy = "date-range";
 
 /*******************************************************************************
+ * THANK-YOU DETECTION & AUTO-MOVE
+ *
+ * When checkForThankYou is true the task inspects the most recent message in a
+ * chain before running any tasks.  If that message is a short thank-you
+ * acknowledgment (e.g. "Thank you so much, have a great day!") the email is
+ * moved to the IMAP folder specified in moveToFolder and no further tasks run.
+ *
+ * This is useful when a task sends documents and the recipient replies with a
+ * brief "thank you" — the reply can be auto-archived so the task does not
+ * re-process it on the next run.
+ *
+ * Set checkForThankYou to false (or leave moveToFolder null) to disable.
+ ******************************************************************************/
+const checkForThankYou = false;
+const moveToFolder = null;  // Example: "Processed" or "Archive/ThankYou"
+
+/*******************************************************************************
  * FILTER CONFIGURATION
  *
  * Set filters to process only specific emails.
@@ -124,6 +141,30 @@ const CUSTOM_HANDLER = (headersPart, subject, body, fullEmail, outputToTerminal)
 /*******************************************************************************
  * END OF CONFIGURATION
  ******************************************************************************/
+
+/**
+ * Move an email (by UID) to an IMAP folder.
+ * Mirrors the helper in extractEmail.mjs so tasks can move emails independently.
+ *
+ * @param {object} connection - IMAP connection (imap-simple or raw)
+ * @param {number|string} uid - Email UID
+ * @param {string} folderPath - Destination IMAP folder path
+ * @returns {Promise<void>}
+ */
+async function moveEmailToImapFolder(connection, uid, folderPath) {
+  if (typeof connection.moveMessage === 'function') {
+    return connection.moveMessage(uid, folderPath);
+  }
+  if (connection.imap && typeof connection.imap.move === 'function') {
+    return new Promise((resolve, reject) => {
+      connection.imap.move(uid, folderPath, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+  throw new Error('Move operation not supported by current IMAP connection');
+}
 
 /**
  * Check if email matches all specified filter criteria.
@@ -410,6 +451,23 @@ export default async function verboseTask(headersPart, subject, body, setVal, ou
   const from = Array.isArray(headersPart.from)
     ? headersPart.from.join(' ')
     : (headersPart.from || '');
+
+  // --- Thank-you detection: move and skip if most recent message is a thank-you ---
+  if (checkForThankYou && moveToFolder) {
+    const { isThankYouChain } = await import('../helpers/emailChain.mjs');
+    const fullBody = (fullEmail && fullEmail.text) ? fullEmail.text : body;
+    if (isThankYouChain(fullBody)) {
+      outputToTerminal("Thank-You Detected", `Moving to "${moveToFolder}": ${subject}`, 0);
+      try {
+        await moveEmailToImapFolder(connection, uid, moveToFolder);
+        outputToTerminal("Moved", `Email moved to "${moveToFolder}"`, 1);
+      } catch (err) {
+        outputToTerminal("Move Error", err.message, 1);
+      }
+      return; // Skip normal task processing
+    }
+  }
+
   outputToTerminal("Processing Email", `From: ${from}, Subject: ${subject}`, 0);
 
   // Execute task(s)

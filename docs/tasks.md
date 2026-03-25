@@ -346,6 +346,31 @@ const taskDoes = [
 
 Tasks execute in order. If a task returns `false`, subsequent tasks are skipped.
 
+### Thank-You Detection & Auto-Move
+
+When a task sends documents (e.g. billing statements) and the recipient replies with a brief "thank you", the task can automatically detect the acknowledgment and move the email to an IMAP folder instead of re-processing it.
+
+```javascript
+const checkForThankYou = true;
+const moveToFolder = "Processed";  // IMAP folder to move thank-you emails to
+```
+
+**How it works:**
+
+1. Before running any tasks, the verbose task checks if `checkForThankYou` is `true` and `moveToFolder` is set.
+2. If the email is a chain, it splits it and inspects the most recent non-empty segment (index 0 or 1).
+3. If that segment is a short (1–2 sentence) body containing phrases like "Thanks", "Thank you so much", "Received. Thanks", etc., it is classified as a thank-you.
+4. Emails with follow-up requests (e.g. "Thanks, can you also send the docs from last week?") are **not** classified as thank-you — the request disqualifies them.
+5. Thank-you emails are moved to `moveToFolder` and skipped; all other emails are processed normally.
+
+**Example scenario:**
+
+A chain email where index 0 is an empty forward wrapper and index 1 contains "Thank you so much, have a great day!" followed by a signature block → this email is moved and not re-processed.
+
+A chain email where the most recent body says "Thanks for sending those. Can you also send the docs from last week?" → this email is **not** moved, because the follow-up request disqualifies it.
+
+Set `checkForThankYou` to `false` or `moveToFolder` to `null` to disable.
+
 ---
 
 ## Filter Template Syntax

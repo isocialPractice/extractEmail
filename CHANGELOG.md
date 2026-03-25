@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1]
+
+### Added
+
+- `checkForThankYou` and `moveToFolder` configuration variables in `verbose.js.template` for automatic thank-you detection and email auto-move
+- `isThankYouSegment()` and `isThankYouChain()` helper functions in `helpers/emailChain.mjs` for detecting short thank-you acknowledgment emails in chains
+- Thank-you detection test suite in `test/test-thankyou.mjs`
+
 ## [2.6.0]
 
 ### Added
