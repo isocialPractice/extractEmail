@@ -190,6 +190,7 @@ function parseSpecialArgs() {
   let filterMode = false;
   let filterBoolMode = false;
   let fromFilter = null;
+  let senderFilter = null;
   let subjectFilter = null;
   let bodyFilter = null;
   let attachmentFilter = false;
@@ -250,6 +251,8 @@ function parseSpecialArgs() {
       attachmentDownload = true;
     } else if (arg.startsWith('from=')) {
       fromFilter = arg.substring('from='.length).replace(/^["']|["']$/g, '');
+    } else if (arg.startsWith('sender=')) {
+      senderFilter = arg.substring('sender='.length).replace(/^["']|["']$/g, '');
     } else if (arg.startsWith('subject=')) {
       subjectFilter = arg.substring('subject='.length).replace(/^["']|["']$/g, '');
     } else if (arg.startsWith('attachment=')) {
@@ -315,7 +318,7 @@ function parseSpecialArgs() {
     }
   }
 
-  return { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, stopAfter, countMode, matchMode, matchAfter, indexMode, ignoreRules, filteredArgs };
+  return { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, senderFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, stopAfter, countMode, matchMode, matchAfter, indexMode, ignoreRules, filteredArgs };
 }
 
 /**
@@ -444,7 +447,7 @@ const help = `
                         Example: extractEmail --filter body="meeting" subject="Project"
 
   --move <folder>       Move emails matching filter criteria to a specified IMAP folder
-                        Requires filter criteria (from=, subject=, body=, attachment=)
+                        Requires filter criteria (from=, sender=, subject=, body=, attachment=)
                         Verifies the folder exists before processing; throws if it does not
                         Supports count and --range to limit which emails are checked
                         Example: extractEmail --move invoices body="invoice"
@@ -511,6 +514,9 @@ const help = `
 
  Filter Arguments (used with -a or --filter):
   from="email@domain"   Filter by sender email (partial match, case-insensitive)
+  sender="email@domain" Filter by actual sender via Return-Path header (partial match, case-insensitive)
+                        Checks the Return-Path (envelope sender), which may differ from
+                        From when the sending address is not the author address
   subject="pattern"     Filter by subject text (partial match, case-insensitive)
   body="text"           Filter by email body/message content (partial match, case-insensitive)
   attachment=true       Match first email with any attachment
@@ -576,7 +582,7 @@ const help = `
  Task Sets:`;
 
 // Parse special arguments (--config, --test, --task, --number, --full-body, --html, --json, --attachment-download, --filter, --filter:bool, --stop, --match) and get remaining args.
-const { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, stopAfter, countMode, matchMode, matchAfter, indexMode, ignoreRules, filteredArgs } = parseSpecialArgs();
+const { configName, testMode, taskName, outputPath, emailNumber, emailRange, fullBody, htmlMode, jsonMode, attachmentDownload, filterMode, filterBoolMode, fromFilter, senderFilter, subjectFilter, bodyFilter, attachmentFilter, moveFolder, checkFolder, stopAfter, countMode, matchMode, matchAfter, indexMode, ignoreRules, filteredArgs } = parseSpecialArgs();
 
 // Load main config for tasks folder resolution.
 const mainConfig = loadMainConfig();
@@ -1634,6 +1640,13 @@ function matchesFilters(headersPart, subject, hasAttachment, body = null) {
     }
   }
 
+  if (senderFilter) {
+    const sender = Array.isArray(headersPart['return-path']) ? headersPart['return-path'].join(' ') : (headersPart['return-path'] || '');
+    if (!sender.toLowerCase().includes(senderFilter.toLowerCase())) {
+      return false;
+    }
+  }
+
   if (attachmentFilter && !hasAttachment) {
     return false;
   }
@@ -1704,9 +1717,9 @@ async function extractEmail() {
       // Validate --move folder existence before processing any emails.
       let resolvedMoveFolder = null;
       if (moveFolder) {
-        const hasFilter = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const hasFilter = fromFilter || senderFilter || subjectFilter || bodyFilter || attachmentFilter;
         if (!hasFilter && emailNumber === null) {
-          console.error('--move requires filter criteria (from=, subject=, body=, or attachment=) to specify which emails to move.');
+          console.error('--move requires filter criteria (from=, sender=, subject=, body=, or attachment=) to specify which emails to move.');
           stop();
           await connection.end();
           return;
@@ -1723,7 +1736,7 @@ async function extractEmail() {
 
       const searchCriteria = ['ALL'];
       const fetchOptions = {
-        bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)'],
+        bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)'],
         struct: true
       };
 
@@ -1740,7 +1753,7 @@ async function extractEmail() {
 
       // Handle --count mode: output integer count of emails in set or matching filters.
       if (countMode) {
-        const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const hasFilterCriteria = fromFilter || senderFilter || subjectFilter || bodyFilter || attachmentFilter;
         const countAll = nonNumericArgs.length > 0 && nonNumericArgs[0] === 'all';
         let countMessages;
 
@@ -1803,7 +1816,7 @@ async function extractEmail() {
 
       // Handle --index mode: output position numbers of emails in set or matching filters.
       if (indexMode) {
-        const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const hasFilterCriteria = fromFilter || senderFilter || subjectFilter || bodyFilter || attachmentFilter;
         const indexAll = nonNumericArgs.length > 0 && nonNumericArgs[0] === 'all';
         let indexMessages;
 
@@ -1976,7 +1989,7 @@ async function extractEmail() {
 
           // Handle --move: move this specific email to the target folder (filter criteria optional).
           if (resolvedMoveFolder) {
-            const hasFilter = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+            const hasFilter = fromFilter || senderFilter || subjectFilter || bodyFilter || attachmentFilter;
             const emailBodyForFilter = typeof body === 'string' ? body : '';
             if (!hasFilter || matchesFilters(headersPart, subject, currentAttachmentSummary, emailBodyForFilter)) {
               const uid = specificMsg.attributes.uid;
@@ -2011,7 +2024,7 @@ async function extractEmail() {
         const clampedEnd = Math.min(end, messages.length);
         const rangeMessages = messages.slice(start - 1, clampedEnd);
 
-        const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+        const hasFilterCriteria = fromFilter || senderFilter || subjectFilter || bodyFilter || attachmentFilter;
         const useFilters = (attachmentDownload || filterMode || filterBoolMode || moveFolder) && hasFilterCriteria && !matchMode;
         let foundMatch = false;
         let rangeStopCount = 0;
@@ -2181,7 +2194,7 @@ async function extractEmail() {
       // --filter:bool mode outputs "true" if match found, "false" otherwise.
       // -a/--attachment-download mode downloads attachments from matching emails.
       // --move mode moves matching emails to the specified IMAP folder.
-      const hasFilterCriteria = fromFilter || subjectFilter || bodyFilter || attachmentFilter;
+      const hasFilterCriteria = fromFilter || senderFilter || subjectFilter || bodyFilter || attachmentFilter;
       if ((attachmentDownload || filterMode || moveFolder) && hasFilterCriteria && !emailNumber && !taskName && !matchMode) {
         let foundMatch = false;
         let filterStopCount = 0;

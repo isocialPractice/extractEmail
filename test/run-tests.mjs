@@ -1074,6 +1074,70 @@ async function testIndexOption() {
   assertContains(helpResult.stdout, '--index', 'Help documents --index option');
 }
 
+async function testSenderFilter() {
+  console.log('\n[Test Suite] sender= Filter Argument\n');
+
+  // Mock emails sorted newest-first:
+  // #1 marketing@example.com  return-path: <mailer-daemon@example.com>  "Survey Response"
+  // #2 survey@forms.com       (no return-path header)                     "Survey Response"
+  // #3 support@helpdesk.com   (no return-path header)                     "Re: Your support ticket #789"
+  // #4 billing@invoices.com   return-path: <accounts@invoices.com>        "Invoice #12345"
+  // #5 user@messaging.com     (no return-path header)                     "STOP"
+  // #6 noreply@company.com    (no return-path header)                     "Monthly Report..."
+  // #7 sender1@example.com    (no return-path header)                     "Welcome to the service"
+
+  // Test: sender= filter finds email by Return-Path header
+  const senderResult = await runCommand(['--filter', 'sender=accounts@invoices.com']);
+  assertContains(senderResult.stdout, 'Found matching email', 'sender= filter finds emails by Return-Path header');
+  assertContains(senderResult.stdout, 'Invoice #12345', 'sender= filter shows correct email subject');
+
+  // Test: sender= filter for mailer-daemon
+  const daemonResult = await runCommand(['--filter', 'sender=mailer-daemon']);
+  assertContains(daemonResult.stdout, 'Found matching email', 'sender= filter finds mailer-daemon email');
+  assertContains(daemonResult.stdout, 'Survey Response', 'sender= filter shows Survey Response subject');
+
+  // Test: sender= filter with partial match
+  const partialResult = await runCommand(['--filter', 'sender=invoices.com']);
+  assertContains(partialResult.stdout, 'Found matching email', 'sender= partial match works');
+
+  // Test: sender= filter with non-matching value
+  const noMatchResult = await runCommand(['--filter', 'sender=nonexistent@nowhere.com']);
+  assertContains(noMatchResult.stdout, 'No emails found matching', 'sender= reports no match for non-existent sender');
+
+  // Test: sender= combined with from= filter
+  const combinedResult = await runCommand(['--filter', 'sender=accounts@invoices.com', 'from=billing@invoices.com']);
+  assertContains(combinedResult.stdout, 'Found matching email', 'sender= combined with from= finds match');
+  assertContains(combinedResult.stdout, 'Invoice #12345', 'Combined sender+from finds correct email');
+
+  // Test: sender= with --filter:bool outputs "true" when match found
+  const boolTrueResult = await runCommand(['--filter:bool', 'sender=accounts@invoices.com']);
+  assertContains(boolTrueResult.stdout, 'true', '--filter:bool sender= outputs "true" on match');
+
+  // Test: sender= with --filter:bool outputs "false" when no match
+  const boolFalseResult = await runCommand(['--filter:bool', 'sender=nonexistent@nowhere.com']);
+  assertContains(boolFalseResult.stdout, 'false', '--filter:bool sender= outputs "false" on no match');
+
+  // Test: --count with sender= filter
+  const countResult = await runCommand(['--count', 'sender=invoices.com']);
+  assertContains(countResult.stdout, '1', '--count with sender= filter outputs correct count');
+
+  // Test: --index with sender= filter
+  const indexResult = await runCommand(['--index', 'sender=invoices.com']);
+  const indexOut = indexResult.stdout.replace('[TEST MODE] Using mock email data\n\n', '').trim();
+  if (indexOut === '4') {
+    console.log('  ✓ --index sender= outputs correct position');
+    passed++;
+  } else {
+    console.log('  ✗ --index sender= outputs correct position');
+    console.log(`    Expected: "4"  Got: "${indexOut}"`);
+    failed++;
+  }
+
+  // Test: sender= is documented in help
+  const helpResult = await runCommand(['--help'], false);
+  assertContains(helpResult.stdout, 'sender=', 'Help documents sender= filter argument');
+}
+
 async function main() {
   console.log('========================================');
   console.log('  extractEmail Test Suite');
@@ -1101,6 +1165,7 @@ async function main() {
     await testCountOption();
     await testMatchOption();
     await testIndexOption();
+    await testSenderFilter();
   } catch (err) {
     console.error('\nTest runner error:', err);
     process.exit(1);

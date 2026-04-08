@@ -34,6 +34,11 @@ const FILTER_CONFIG = {
   // Example: "noreply@example.com"  or  "{{ .*@invoices\\.com }}"
   fromPattern: null,
 
+  // Filter by actual sender from email Sender header
+  // Checks the Sender header, which may differ from From when sending on behalf of another address
+  // Example: "mailer@example.com"
+  sender: null,
+
   // Filter by subject line
   // Example: "Invoice"  or  "{{ Invoice #[0-9]+ }}"  or  "Report {{ dates.year }}"
   subjectPattern: null,
@@ -47,6 +52,7 @@ const FILTER_CONFIG = {
 
 // Resolve filter patterns once at startup (supports {{ regex }} and {{ dates.* }} syntax).
 const resolvedFrom    = resolveFilterPattern(FILTER_CONFIG.fromPattern);
+const resolvedSender  = resolveFilterPattern(FILTER_CONFIG.sender);
 const resolvedSubject = resolveFilterPattern(FILTER_CONFIG.subjectPattern);
 const resolvedBody    = resolveFilterPattern(FILTER_CONFIG.bodyPattern);
 
@@ -64,6 +70,13 @@ function matchesFilters(headersPart, subject, body) {
     : (headersPart.from || '');
 
   if (!testPattern(from,    resolvedFrom))    return false;
+
+  // Check sender (actual sender from Return-Path header)
+  const sender = Array.isArray(headersPart['return-path'])
+    ? headersPart['return-path'].join(' ')
+    : (headersPart['return-path'] || '');
+  if (!testPattern(sender,  resolvedSender))  return false;
+
   if (!testPattern(subject, resolvedSubject)) return false;
   if (!testPattern(body,    resolvedBody))    return false;
 

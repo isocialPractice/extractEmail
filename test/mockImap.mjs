@@ -15,7 +15,7 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['sender1@example.com'],
           to: ['recipient@test.com'],
@@ -36,7 +36,7 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['noreply@company.com'],
           to: ['recipient@test.com'],
@@ -57,7 +57,7 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['user@messaging.com'],
           to: ['recipient@test.com'],
@@ -91,9 +91,10 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['billing@invoices.com'],
+          'return-path': ['<accounts@invoices.com>'],
           to: ['recipient@test.com'],
           subject: ['Invoice #12345'],
           date: ['Thu, 25 Jan 2024 08:00:00 +0000']
@@ -135,7 +136,7 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['support@helpdesk.com'],
           to: ['recipient@test.com'],
@@ -156,7 +157,7 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['survey@forms.com'],
           to: ['recipient@test.com'],
@@ -184,9 +185,10 @@ export const testEmails = [
     },
     parts: [
       {
-        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
+        which: 'HEADER.FIELDS (FROM TO SUBJECT DATE RETURN-PATH)',
         body: {
           from: ['marketing@example.com'],
+          'return-path': ['<mailer-daemon@example.com>'],
           to: ['recipient@test.com'],
           subject: ['Survey Response'],
           date: ['Sun, 28 Jan 2024 09:00:00 +0000']

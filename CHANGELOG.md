@@ -6,6 +6,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0]
+
+### Added
+
+- `sender=` CLI filter argument for filtering by the actual sender via the Return-Path header
+  - The Return-Path (envelope sender) may differ from the From header when the sending address is not the author address
+  - Works with `--filter`, `--filter:bool`, `-a`, `--move`, `--count`, `--index`, and `--match`
+  - Partial match, case-insensitive (same behavior as `from=`)
+- `sender` property in task `FILTER_CONFIG` for filtering by Return-Path header in verbose task and custom tasks
+- IMAP fetch now requests the `RETURN-PATH` header field alongside `FROM`, `TO`, `SUBJECT`, and `DATE`
+- Test suite for `sender=` filter argument with 13 new tests
+
+## [2.6.1]
+
+### Added
+
+- `checkForThankYou` and `moveToFolder` configuration variables in `verbose.js.template` for automatic thank-you detection and email auto-move
+- `isThankYouSegment()` and `isThankYouChain()` helper functions in `helpers/emailChain.mjs` for detecting short thank-you acknowledgment emails in chains
+- Thank-you detection test suite in `test/test-thankyou.mjs`
+
 ## [2.6.0]
 
 ### Added

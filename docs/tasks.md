@@ -316,7 +316,11 @@ const CUSTOM_HANDLER = (headersPart, subject, body, fullEmail, outputToTerminal)
 ```javascript
 const FILTER_CONFIG = {
   // Filter by sender
-  fromPattern: "reports@company.com",
+  fromPattern: "reports@example.com",
+  
+  // Filter by actual sender from Return-Path header
+  // Checks the Return-Path (envelope sender), which may differ from From
+  sender: "mailer@example.com",
   
   // Filter by subject
   subjectPattern: "Monthly Report",

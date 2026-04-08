@@ -36,6 +36,7 @@ Complete reference for all extractEmail command-line options.
 | Argument | Description |
 |----------|-------------|
 | `from="email@domain"` | Filter by sender email (partial, case-insensitive) |
+| `sender="email@domain"` | Filter by actual sender via Return-Path header (partial, case-insensitive) |
 | `subject="pattern"` | Filter by subject text (partial, case-insensitive) |
 | `body="text"` | Filter by body content (partial, case-insensitive) |
 | `attachment=true` | Match first email with any attachment |
@@ -640,6 +641,21 @@ extractEmail -a from="boss@work.com"
 
 # With filter mode (no download)
 extractEmail --filter from="boss@work.com"
+```
+
+### `sender="email@domain.com"`
+
+Filter by the actual sender via the Return-Path header (partial match, case-insensitive). The Return-Path (envelope sender) may differ from the From header when the sending address is not the author address.
+
+```bash
+# Find emails where the actual sender differs from From
+extractEmail --filter sender="mailer@example.com"
+
+# Combine with from= for precise matching
+extractEmail --filter from="admin@example.com" sender="mailer@example.com"
+
+# Use with --filter:bool for conditional checks
+extractEmail --filter:bool sender="noreply@example.com"
 ```
 
 ### `subject="pattern"`
