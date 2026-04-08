@@ -533,51 +533,15 @@ const help = `
 
  Examples:
   extractEmail                           Extract all fields from last 100 emails
-  extractEmail --config=work subject 50  Extract subjects from last 50 emails using work account
-  extractEmail from 25                   Extract sender from last 25 emails
-  extractEmail attachment 10             Extract attachment names from last 10 emails
+  extractEmail --config=work subject 50  Extract subjects using work account
+  extractEmail -n 10                     Get email #10 with full body
+  extractEmail --range 5-10              Get emails #5 through #10
+  extractEmail --json all 10             Get last 10 emails in JSON format
+  extractEmail -a from="boss@work.com"   Download attachments from boss's emails
+  extractEmail --filter body="urgent"    Find emails with "urgent" in body
+  extractEmail --filter:bool from="boss@"  Check if boss email exists (true/false)
+  extractEmail --move invoices body="invoice" 50  Move matching emails to folder
   extractEmail --task=myTask 50          Run myTask on last 50 emails
-  extractEmail --config=work --task=myTask  Run task with specific account
-  extractEmail -o ./output body 10        Write output to a file in ./output
-  extractEmail -n 10                      Get email #10 with full body
-  extractEmail --range 5-10               Get emails #5 through #10 with full body
-  extractEmail --range 50-                Get emails #50 through the last email
-  extractEmail --range 50-last            Get emails #50 through the last email
-  extractEmail -f all 20                  Get last 20 emails with full body (sanitized text)
-  extractEmail --html all 20              Get last 20 emails with raw HTML preserved
-  extractEmail --json all 10              Get last 10 emails in JSON format
-  extractEmail --json:html -n 1           Get email #1 with hierarchical JSON structure
-  extractEmail --json:table -n 1          Get email #1 with columnar table JSON format
-  extractEmail -a -n 5                    Download attachments from email #5
-  extractEmail -a from="boss@work.com"    Download attachments from boss's emails
-  extractEmail -a body="invoice attached" Download attachments from emails containing text
-  extractEmail --filter from="boss@"      Find emails from boss (no download)
-  extractEmail --filter body="urgent"     Find emails with "urgent" in body
-  extractEmail --filter body="meeting" subject="Project"  Find emails matching multiple filters
-  extractEmail --filter:bool from="boss@" Check if boss email exists (outputs true/false)
-  extractEmail --filter:bool body="urgent" 50  Check last 50 emails for "urgent" in body
-  extractEmail -i attachment="*.jpg" -a -n 5  Download non-.jpg attachments from email #5
-  extractEmail -i from="ads@co.com" subject 50  Ignore emails from ads when listing subjects
-  extractEmail --move invoices body="invoice" 50  Move last 50 emails with "invoice" in body to invoices
-  extractEmail --move invoices body="invoice" --range 5-10  Move range 5-10 matching body filter to invoices
-  extractEmail --check "Sent" subject 20          Extract subjects from last 20 emails in Sent folder
-  extractEmail --check "Sent" --range 10-20       Get emails #10-20 from Sent folder with full body
-  extractEmail --check "Archive" --filter body="invoice"  Find invoice emails in Archive folder
-  extractEmail --stop subject 50              Stop after first email processed
-  extractEmail --stop 3 subject 50            Stop after processing 3 emails
-  extractEmail --filter subject="Invoice" --stop 2  Find first 2 matching Invoice emails
-  extractEmail --count                               Count emails in default set (100)
-  extractEmail --count subject="Invoice"             Count emails with "Invoice" in subject
-  extractEmail --count from="boss@" all              Count all matching emails across entire inbox
-  extractEmail --count body="urgent" --range 100-200 Count matching emails within range 100-200
-  extractEmail --index                               List positions of all emails in default set
-  extractEmail --index subject="Invoice"             List positions of emails with "Invoice" in subject
-  extractEmail --index from="boss@" all              List positions of matching emails across entire inbox
-  extractEmail --index body="urgent" --range 100-200 List positions of matching emails in range 100-200
-  extractEmail --match                               Output first matching email (normal format)
-  extractEmail --filter body="pattern" --match 3     Output first 3 matching emails (normal format)
-  extractEmail --filter body="pattern" --match 2 all Search all emails, output first 2 matches
-  extractEmail --filter body="pattern" --match 3 --range 100-200  Match within range, output 3
 
  Task Sets:`;
 
