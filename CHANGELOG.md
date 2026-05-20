@@ -6,6 +6,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0]
+
+Major release: the codebase has been ported to TypeScript. Runtime behavior and the public CLI surface are unchanged, but the on-disk source layout, build pipeline, and module resolution paths have moved.
+
+### Added
+
+- TypeScript source tree under `src/` compiled to `dist/` via `tsc`
+  - `src/extractEmail.ts` — main CLI entry point
+  - `src/cli.ts` — CLI argument parsing
+  - `src/imap.ts` — IMAP connection and fetch
+  - `src/parse.ts` — email parsing helpers
+  - `src/output.ts` — output formatting
+  - `src/helpers/dateHelper.ts`, `filterHelper.ts`, `emailChain.ts`, `objects.ts`, `narrowRequestedData.ts`
+- `tsconfig.json` configured for Node 20 ESM (NodeNext, ES2022, `rootDir: src`, `outDir: dist`)
+- `build` and `prepare` npm scripts so `npm install` compiles sources automatically
+- `runCli(args?)` exported function on each CLI-enabled helper (`emailChain`, `objects`, `narrowRequestedData`) so the CLI entry point can be invoked programmatically
+
+### Changed
+
+- **BREAKING**: `bin.extractEmail` now points to `dist/extractEmail.js` (was `extractEmail.mjs`). Reinstall or relink after upgrading: `npm install` then `npm link` (if previously linked).
+- **BREAKING**: `main` now points to `dist/extractEmail.js` (was `extractEmail.mjs`). Consumers importing the package programmatically receive the compiled output.
+- **BREAKING**: Helper modules are authored in TypeScript and compiled to `dist/helpers/`. The root-level `helpers/*.mjs` and `helpers/narrowRequestedData.js` files are now thin re-export shims that forward to `dist/helpers/*.js`. The public API exported from each helper is unchanged; user task plugins importing `../helpers/foo.mjs` continue to work.
+- `npm install` now runs `tsc` via the `prepare` script. A `dist/` directory is required for the CLI to run; rebuild after editing sources with `npm run build`.
+- Node.js 20.x or higher is now required (was 16.x). Driven by `@types/node ^20` and NodeNext module resolution.
+- Project structure documented in README updated to reflect the `src/` → `dist/` layout.
+
+### Migration
+
+- After pulling this version, run `npm install` to regenerate `dist/`.
+- If you previously ran `npm link`, run `npm link` again so the global `extractEmail` binary points at the new `dist/extractEmail.js`.
+- No changes required to account configs, task plugins, mapping configs, or CLI invocations.
+- If you import helpers from your own scripts via `helpers/foo.mjs`, no changes are required — the shims preserve the existing paths. To import directly from the compiled output, use `dist/helpers/foo.js`.
+
 ## [2.7.0]
 
 ### Added

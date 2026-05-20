@@ -5,7 +5,7 @@ Get up and running with extractEmail in minutes.
 
 ## Prerequisites
 
-- Node.js 16.x or higher
+- Node.js 20.x or higher
 - npm (comes with Node.js)
 - Access to an IMAP email account
 
@@ -17,6 +17,12 @@ Get up and running with extractEmail in minutes.
 git clone <repository-url>
 cd extractEmail
 npm install
+```
+
+`npm install` runs the `prepare` script, which compiles the TypeScript sources in `src/` to `dist/` automatically. To rebuild after editing sources:
+
+```bash
+npm run build
 ```
 
 ### 2. Make Command Available Globally (Optional)

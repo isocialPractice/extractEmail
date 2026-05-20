@@ -9,14 +9,14 @@ const HANG_THRESHOLD_MS = 30_000;  // silence before forced exit
 
 const FRAMES = ['.', '..', '...'];
 
-let spinnerTimer  = null;
-let watchdogTimer = null;
+let spinnerTimer: NodeJS.Timeout | null  = null;
+let watchdogTimer: NodeJS.Timeout | null = null;
 let frameIndex    = 0;
-let lastPingAt    = null;
+let lastPingAt: number | null    = null;
 let spinnerActive = false;
 let spinnerLabel  = '';
 
-export function start(label = 'extracting emails') {
+export function start(label = 'extracting emails'): void {
   spinnerLabel = label;
   lastPingAt   = Date.now();
   frameIndex   = 0;
@@ -38,11 +38,11 @@ export function start(label = 'extracting emails') {
   }, WATCHDOG_CHECK_MS);
 }
 
-export function ping() {
+export function ping(): void {
   lastPingAt = Date.now();
 }
 
-export function stop() {
+export function stop(): void {
   if (spinnerTimer !== null) {
     clearInterval(spinnerTimer);
     spinnerTimer = null;
