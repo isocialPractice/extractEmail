@@ -23,12 +23,12 @@
 
 ## Major Updates
 
-- [x] Port to TypeScript
 - [ ] add OAuth2 / XOAUTH2 authentication support (Gmail, Outlook)
 - [ ] add `--watch` / `--poll <interval>` mode to continuously monitor inbox
 - [ ] add SMTP sending capability (reply, forward, compose new)
 - [ ] add multi-folder support to search across multiple mailboxes in one run
 - [ ] build an interactive TUI (terminal UI) email browser mode
+- [x] Port to TypeScript
 
 ### Major Updates Under Consideration
 
