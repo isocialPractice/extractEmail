@@ -23,6 +23,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageRoot = path.resolve(__dirname, '..');
 
+// Handle --version / -v early, before any config loading or IMAP setup.
+if (process.argv.slice(2).some(a => a === '--version' || a === '-v')) {
+  try {
+    const pkgPath = path.resolve(packageRoot, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    console.log(pkg.version);
+  } catch (err: any) {
+    console.error(`Unable to read package version: ${err.message}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 // Config will be loaded dynamically based on --config option.
 let configEmail: any = null;
 

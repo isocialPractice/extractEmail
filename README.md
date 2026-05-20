@@ -162,6 +162,7 @@ Used with `-a, --attachment-download`, `--filter`, `--filter:bool`, or `--move` 
 | Option | Description |
 |--------|-------------|
 | `-h, --help` | Show help message |
+| `-v, --version` | Print the installed extractEmail version and exit |
 | `from` | Extract sender addresses |
 | `to` | Extract recipient addresses |
 | `date` | Extract email dates |

@@ -22,6 +22,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - `tsconfig.json` configured for Node 20 ESM (NodeNext, ES2022, `rootDir: src`, `outDir: dist`)
 - `build` and `prepare` npm scripts so `npm install` compiles sources automatically
 - `runCli(args?)` exported function on each CLI-enabled helper (`emailChain`, `objects`, `narrowRequestedData`) so the CLI entry point can be invoked programmatically
+- `--version, -v` flag that prints the installed extractEmail version (read from `package.json`) and exits immediately, without requiring an account config or IMAP connection.
 
 ### Changed
 

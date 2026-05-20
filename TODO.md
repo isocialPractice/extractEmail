@@ -2,11 +2,11 @@
 
 ## Constant TODO Item(s)
 
-- [ ] update `package.json` version from `X.Y.Z` to match corresponding major release, minor release, or minor change.
+- ~[ ]~ update `package.json` version from `X.Y.Z` to match corresponding major release, minor release, or minor change.
 
 ## Minor Updates
 
-- [ ] add `--version` / `-v` flag to print current version and exit
+- [x] add `--version` / `-v` flag to print current version and exit
 - [ ] add `--mailbox <name>` flag to select a mailbox other than `INBOX`
 - [ ] add `--since <date>` flag for filtering emails on or after a date
 - [ ] add `--before <date>` flag for filtering emails before a date
@@ -23,6 +23,7 @@
 
 ## Major Updates
 
+- [x] Port to TypeScript
 - [ ] add OAuth2 / XOAUTH2 authentication support (Gmail, Outlook)
 - [ ] add `--watch` / `--poll <interval>` mode to continuously monitor inbox
 - [ ] add SMTP sending capability (reply, forward, compose new)
@@ -31,7 +32,6 @@
 
 ### Major Updates Under Consideration
 
-- [x] Port to TypeScript
 - [ ] **`raw-data` narrowTypeBy — LLM integration**: implement Python `llm` tool integration
   (new dependency) so `narrowTypeBy = "raw-data:boolean"` can pipe the email body/chain
   context through `llm` to derive a reliable yes/no answer, and `raw-data:<file.ext>` can

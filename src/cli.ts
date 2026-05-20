@@ -509,6 +509,7 @@ export const help = `
 
  Options:
   -h, --help            Show this help message
+  -v, --version         Print the installed extractEmail version and exit
   from                  Extract sender addresses
   to                    Extract recipient addresses
   date                  Extract email dates
