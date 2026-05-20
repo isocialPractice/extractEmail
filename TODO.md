@@ -31,7 +31,7 @@
 
 ### Major Updates Under Consideration
 
-- [ ] Port to TypeScript
+- [x] Port to TypeScript
 - [ ] **`raw-data` narrowTypeBy — LLM integration**: implement Python `llm` tool integration
   (new dependency) so `narrowTypeBy = "raw-data:boolean"` can pipe the email body/chain
   context through `llm` to derive a reliable yes/no answer, and `raw-data:<file.ext>` can
