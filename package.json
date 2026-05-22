@@ -1,6 +1,6 @@
 {
   "name": "extract-email",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "CLI tool to extract and process emails from IMAP accounts with support for multiple account configurations and custom task plugins.",
   "type": "module",
   "main": "dist/extractEmail.js",

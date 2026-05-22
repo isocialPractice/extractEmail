@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1]
+
+### Fixed
+
+- Filter arguments (`from=`, `sender=`, `subject=`, `body=`) with single-quoted values containing spaces no longer hang on Windows `cmd.exe`.
+  `cmd.exe` does not treat single quotes as quote characters, so a value like `subject='foo bar'` was split into multiple argv tokens by the shell. The extra tokens leaked into `filteredArgs`, causing the CLI to use an unrecognised string as the extract mode and then block indefinitely on an IMAP fetch. The parser now reassembles split tokens until the matching closing quote is found and strips it, restoring the full value. An unterminated quote now throws an actionable error that tells the user to use double quotes on `cmd.exe`.
+
 ## [3.0.0]
 
 Major release: the codebase has been ported to TypeScript. Runtime behavior and the public CLI surface are unchanged, but the on-disk source layout, build pipeline, and module resolution paths have moved.

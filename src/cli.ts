@@ -158,6 +158,51 @@ export function parseRangeArg(rangeStr) {
 }
 
 /**
+ * Resolve a `key=value` filter value, joining subsequent argv tokens when the
+ * value opens with a quote (single or double) that isn't closed in the same token.
+ *
+ * This is needed on Windows `cmd.exe`, which does not treat single quotes as
+ * quote characters. A phrase like `subject='foo bar baz'` is delivered to the
+ * process as multiple separate argv tokens (`subject='foo`, `bar`, `baz'`),
+ * which previously leaked into `filteredArgs` and caused the CLI to hang on a
+ * bogus extract/count combination.
+ *
+ * @param args      Full argv slice.
+ * @param startIdx  Index of the token containing `key=...`.
+ * @param rawValue  Substring after `key=`.
+ * @param key       The key name (for error messages).
+ * @returns         Resolved value plus the new loop index (last consumed token).
+ */
+function consumeQuotedFilterValue(
+  args: string[],
+  startIdx: number,
+  rawValue: string,
+  key: string
+): { value: string; newIndex: number } {
+  const quote = rawValue[0] === '"' || rawValue[0] === "'" ? rawValue[0] : null;
+  if (!quote) {
+    return { value: rawValue, newIndex: startIdx };
+  }
+  let acc = rawValue.slice(1);
+  // Closed in the same token: `key='foo'`
+  if (acc.endsWith(quote)) {
+    return { value: acc.slice(0, -1), newIndex: startIdx };
+  }
+  // Walk forward joining tokens with a space until the closing quote is found.
+  for (let j = startIdx + 1; j < args.length; j++) {
+    const tok = args[j];
+    if (tok.endsWith(quote)) {
+      acc += ' ' + tok.slice(0, -1);
+      return { value: acc, newIndex: j };
+    }
+    acc += ' ' + tok;
+  }
+  throw new Error(
+    `Unterminated quoted value for ${key}=. On Windows cmd.exe, single quotes are not recognized as quote characters — use double quotes instead (e.g. ${key}="value with spaces").`
+  );
+}
+
+/**
  * Parse special flags (--config, --test, --task, --output-folder, --number, --range, --full-body, --html, --json, --attachment-download, --filter, --filter:bool, --move, --stop, --count, --match, --index) from arguments.
  * @returns {{ configName: string|null, testMode: boolean, taskName: string|null, outputPath: string|null, emailNumber: number|null, emailRange: {start:number,end:number}|null, fullBody: boolean, htmlMode: boolean, jsonMode: string|null, attachmentDownload: boolean, filterMode: boolean, filterBoolMode: boolean, fromFilter: string|null, subjectFilter: string|null, bodyFilter: string|null, attachmentFilter: boolean, moveFolder: string|null, checkFolder: string|null, stopAfter: number|null, countMode: boolean, matchMode: boolean, matchAfter: number|null, indexMode: boolean, filteredArgs: string[] }}
  */
@@ -236,16 +281,24 @@ export function parseSpecialArgs() {
     } else if (arg === '--attachment-download' || arg === '-a') {
       attachmentDownload = true;
     } else if (arg.startsWith('from=')) {
-      fromFilter = arg.substring('from='.length).replace(/^["']|["']$/g, '');
+      const r = consumeQuotedFilterValue(args, i, arg.substring('from='.length), 'from');
+      fromFilter = r.value;
+      i = r.newIndex;
     } else if (arg.startsWith('sender=')) {
-      senderFilter = arg.substring('sender='.length).replace(/^["']|["']$/g, '');
+      const r = consumeQuotedFilterValue(args, i, arg.substring('sender='.length), 'sender');
+      senderFilter = r.value;
+      i = r.newIndex;
     } else if (arg.startsWith('subject=')) {
-      subjectFilter = arg.substring('subject='.length).replace(/^["']|["']$/g, '');
+      const r = consumeQuotedFilterValue(args, i, arg.substring('subject='.length), 'subject');
+      subjectFilter = r.value;
+      i = r.newIndex;
     } else if (arg.startsWith('attachment=')) {
       const val = arg.substring('attachment='.length).toLowerCase();
       attachmentFilter = val === 'true';
     } else if (arg.startsWith('body=')) {
-      bodyFilter = arg.substring('body='.length).replace(/^["']|["']$/g, '');
+      const r = consumeQuotedFilterValue(args, i, arg.substring('body='.length), 'body');
+      bodyFilter = r.value;
+      i = r.newIndex;
     } else if (arg === '--filter:bool') {
       filterMode = true;
       filterBoolMode = true;
