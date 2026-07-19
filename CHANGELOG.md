@@ -6,14 +6,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.1]
+## [3.0.1-alpha]
 
 ### Fixed
 
 - Filter arguments (`from=`, `sender=`, `subject=`, `body=`) with single-quoted values containing spaces no longer hang on Windows `cmd.exe`.
   `cmd.exe` does not treat single quotes as quote characters, so a value like `subject='foo bar'` was split into multiple argv tokens by the shell. The extra tokens leaked into `filteredArgs`, causing the CLI to use an unrecognised string as the extract mode and then block indefinitely on an IMAP fetch. The parser now reassembles split tokens until the matching closing quote is found and strips it, restoring the full value. An unterminated quote now throws an actionable error that tells the user to use double quotes on `cmd.exe`.
 
-## [3.0.0]
+## [3.0.0-alpha]
 
 Major release: the codebase has been ported to TypeScript. Runtime behavior and the public CLI surface are unchanged, but the on-disk source layout, build pipeline, and module resolution paths have moved.
 
@@ -47,7 +47,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - No changes required to account configs, task plugins, mapping configs, or CLI invocations.
 - If you import helpers from your own scripts via `helpers/foo.mjs`, no changes are required — the shims preserve the existing paths. To import directly from the compiled output, use `dist/helpers/foo.js`.
 
-## [2.7.0]
+## [2.7.0-alpha]
 
 ### Added
 
@@ -59,7 +59,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - IMAP fetch now requests the `RETURN-PATH` header field alongside `FROM`, `TO`, `SUBJECT`, and `DATE`
 - Test suite for `sender=` filter argument with 13 new tests
 
-## [2.6.1]
+## [2.6.1-alpha]
 
 ### Added
 
@@ -67,7 +67,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - `isThankYouSegment()` and `isThankYouChain()` helper functions in `helpers/emailChain.mjs` for detecting short thank-you acknowledgment emails in chains
 - Thank-you detection test suite in `test/test-thankyou.mjs`
 
-## [2.6.0]
+## [2.6.0-alpha]
 
 ### Added
 
@@ -82,7 +82,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 
 - Improved `helpers/narrowRequestedData.js` and `helpers/filterHelper.mjs` for more accurate narrowing and filtering of email data
 
-## [2.5.0]
+## [2.5.0-alpha]
 
 ### Added
 
@@ -104,7 +104,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
   - Previously all IMAP folders including `Sent` were included by default
   - Use an explicit folder argument to include `Sent` when needed
 
-## [2.4.0]
+## [2.4.0-alpha]
 
 ### Added
 
@@ -120,7 +120,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
   - Partial match, case-insensitive
 - Test suites for `--filter`, `--filter:bool`, and `body=` filter functionality
 
-## [2.3.0]
+## [2.3.0-alpha]
 
 ### Added
 
@@ -153,7 +153,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - `helpers/narrowRequestedData.js` converted from CommonJS to ES module syntax
 - Script templates (`example.bat.template`, `example.sh.template`) updated with `-m` flag usage examples
 
-## [2.2.0]
+## [2.2.0-alpha]
 
 ### Added
 - `extractEmailTasks/verbose.js.template` — flexible multi-task email processing template
@@ -185,7 +185,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - Script paths resolve relative to project directory instead of current working directory
 - Special characters in email addresses (angle brackets) properly escaped for cmd.exe
 
-## [2.1.0]
+## [2.1.0-alpha]
 
 ### Added
 - `{{ }}` template syntax for task filter patterns — wrap a regex in `{{ expr }}` for full regex
@@ -218,7 +218,7 @@ Major release: the codebase has been ported to TypeScript. Runtime behavior and 
 - `-n` flag no longer bypasses `--task` execution (task runs against the specific email)
 - Attachment summary now correctly filtered by `-i` rules in `-n` specific email path
 
-## [2.0.0]
+## [2.0.0-alpha]
 
 Releasing version `2.0.0` as new options and improved handling of output merit a major version update.
 
@@ -232,7 +232,7 @@ Releasing version `2.0.0` as new options and improved handling of output merit a
 
 - Improved handling of HTML in body output
 
-## [1.0.0]
+## [1.0.0-alpha]
 
 ### Added
 - `-n, --number <num>` flag to get a specific email by number with full body content
@@ -254,7 +254,7 @@ Releasing version `2.0.0` as new options and improved handling of output merit a
 - HTML part extraction for emails without text/plain parts
 - Body content retrieval with multiple fallback strategies
 
-## [0.0.0] - Initial Repository
+## [0.0.0-alpha] - Initial Repository
 
 ### Added
 - Extract email fields (from, to, date, subject, body, attachment) from IMAP accounts
