@@ -2,8 +2,8 @@
   "name": "extract-email",
   "version": "3.0.1-alpha",
   "description": "CLI tool to extract and process emails from IMAP accounts with support for multiple account configurations and custom task plugins.",
-  "publisher": "isocialPractice",
   "author": "John Haugabook",
+  "publisher": "isocialPractice",
   "type": "module",
   "main": "dist/extractEmail.js",
   "bin": {
